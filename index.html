@@ -279,11 +279,24 @@
             // （教育部的人數藏在已被認領的有金額句中），不佔用句子、不影響其他科目歸戶。
             const pcs = _personCounts(frags.join(''));
             if (pcs.length) {
+                // 「職員N人」有時是彙總數、已含政務人員（實測教育部494人、農業部384人即如此）：
+                // 判準為「本分支有政務人員待遇(1010)科目，但原文未單獨列政務人員人數」。
+                // 主計總處原文分開寫「政務人員2人、法定編制人員504人」則不套用。
+                const hasPol = br.codeRows.some(c => c.l2Code === '1010');
+                const sepPol = pcs.some(p => p.type.includes('政務人員'));
+                const agg = (hasPol && !sepPol) ? pcs.find(p => p.type.includes('職員') && !p.type.includes('政務')) : null;
                 for (const c of br.codeRows) {
                     if (c.desc || !c.l2Code) continue;
                     const keys = _PERSON_ACCT[c.l2Code]; if (!keys) continue;
                     const mine = pcs.filter(p => keys.some(k => p.type.includes(k)));
-                    if (mine.length) { c.desc = mine.map(p => p.text).join('、') + '。'; c.headcount = true; }
+                    if (mine.length) {
+                        c.desc = mine.map(p => (p === agg ? p.text + '（含政務人員）' : p.text)).join('、') + '。';
+                        c.headcount = true;
+                    } else if (agg && c.l2Code === '1010') {
+                        // 政務人員人數未單獨列示 → 指出它含在哪個彙總數內，而非留白
+                        c.desc = `人數未單獨列示，含於「${agg.text}」內。`;
+                        c.headcount = true;
+                    }
                 }
             }
             // 把「N千元（政風處）」「N千元（含媒體政策及業務宣導費600千元）」這類緊接金額的括號註記
