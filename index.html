@@ -35,6 +35,10 @@
         #unitTable .up-unit { white-space: normal; line-height: 1.45; font-weight: normal; font-size: 12px; color: #4a5568; max-width: 170px; }
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
+        #unitTable .up-list { margin: 0; padding-left: 1.15em; }
+        #unitTable .up-list > li { margin: 2px 0; }
+        #unitTable .up-residue > summary { cursor: pointer; color: #856404; font-weight: 600; margin-top: 4px; }
+        #unitTable .up-residue[open] > summary { margin-bottom: 4px; }
         .filter-container label { margin-right: 14px; }
 </style>
 </head>
@@ -380,7 +384,14 @@
 
         const _unitFilter = { plan: '', branch: '', l1: '', l2: '', q: '' };
         function _onUnitFilter(k, v) { _unitFilter[k] = v; _renderUnitPlan(_unitRows); }
-        const _unitDesc = r => r.level === '分支計畫' ? (r.descFrags || []).map(f => f.t).join('') : (r.desc || '');
+        // 分支列不再重印全文：已歸戶的句子在各科目列已顯示，這裡只留
+        //   (a) 無金額的總述句（屬分支層，別處看不到）
+        //   (b) 未歸戶的有金額句（待人工複核）
+        const _branchOverview = r => (r.descFrags || []).filter(f => f.matched && !/千元/.test(f.t));
+        const _branchResidue = r => (r.descFrags || []).filter(f => !f.matched);
+        const _unitDesc = r => r.level === '分支計畫'
+            ? [..._branchOverview(r), ..._branchResidue(r)].map(f => f.t).join('')
+            : (r.desc || '');
         function _unitPass(r) {
             const F = _unitFilter;
             return (!F.plan || r.planCode === F.plan) && (!F.branch || r.branchName === F.branch)
@@ -431,12 +442,24 @@
             const totalRow = `<tr class="up-total"><td colspan="6">合計（目前篩選：${leaves.length ? leaves.length + ' 筆二級科目' : view.length + ' 筆'}）</td><td class="up-amt">${fmt(total)}</td><td></td><td></td></tr>`;
 
             const cls = { '分支計畫': 'up-branch', '用途別一級': 'up-l1', '用途別二級': 'up-l2' };
-            const branchDesc = r => (r.descFrags || []).map(f => f.matched ? escapeHtml(f.t) : `<span class="narr-un">${escapeHtml(f.t)}</span>`).join('');
+            // 分支列：總述句直接顯示；未歸戶句數量常很多（教育部單格曾達 2,150 字），
+            // 收進可摺疊區塊，維持可讀又不丟資料。
+            const bullets = (arr, cls) => `<ul class="up-list">` +
+                arr.map(f => `<li${cls ? ` class="${cls}"` : ''}>${escapeHtml(f.t)}</li>`).join('') + `</ul>`;
+            const branchDesc = r => {
+                const ov = _branchOverview(r), rs = _branchResidue(r);
+                const ovH = ov.length ? bullets(ov, '') : '';
+                if (!rs.length) return ovH;
+                return ovH + `<details class="up-residue"><summary>未歸戶說明 ${rs.length} 句（點開檢視，黃底＝未對到科目）</summary>${bullets(rs, 'narr-un')}</details>`;
+            };
             let body = '';
             for (const r of view) {
                 const acctCode = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
                 const acctName = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name);
-                const desc = r.level === '分支計畫' ? branchDesc(r) : escapeHtml(r.desc || '');
+                const sentences = s => String(s || '').split(/(?<=。)/).map(x => x.trim()).filter(Boolean);
+                const descSent = sentences(r.desc);
+                const desc = r.level === '分支計畫' ? branchDesc(r)
+                    : descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '') : escapeHtml(r.desc || '');
                 const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : ((r.inferred || r.headcount) ? ' narr-un' : ''));
                 const descTitle = r.ambiguous ? ' title="不確定：此金額無法對應到句子，區間內有多個科目，以下為候選文字（重複顯示），請人工確認"'
                     : r.sumMatched ? ' title="金額加總命中：句中三級明細金額加總＝本科目金額（事實）"'
@@ -452,7 +475,7 @@
                     + `<td class="up-unit">${escapeHtml(r.unitNote || '')}</td></tr>`;
             }
             document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine +
-                `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明（科目列：白＝金額命中、黃＝順序推論、橘＝區間多科目候選待確認；分支列＝全文，黃底句＝未對到科目）</th><th style="min-width:130px;">業務別／單位別</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
+                `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明（科目列：白＝金額命中、黃＝順序推論／人數歸戶、橘＝區間多科目候選待確認；分支列＝總述＋未歸戶句摺疊）</th><th style="min-width:130px;">業務別／單位別</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
         }
 
         // 匯出目前查詢結果（xlsx/csv/json）；欄位與畫面一致
