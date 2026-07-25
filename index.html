@@ -68,6 +68,12 @@
                         <button class="btn-success" onclick="exportUnit('json')" title="匯出目前查詢結果">匯出 json</button>
                     </span>
                 </div>
+                <div class="controls" style="margin-top:10px;">
+                    <span style="color:#6c757d;font-size:13px;">沒有檔案？載入範例：</span>
+                    <button class="btn-secondary" onclick="loadUnitSample('dgbas')">行政院主計總處 115年度</button>
+                    <button class="btn-secondary" onclick="loadUnitSample('moe')">教育部 115年度</button>
+                    <button class="btn-secondary" onclick="loadUnitSample('moa')">農業部 115年度</button>
+                </div>
             </div>
             <div id="statusMessageU" class="message status-message"></div>
             <div id="errorOutputU" class="message error-message"></div>
@@ -131,15 +137,16 @@
         function _activeProfile() { return _UNIT_PROFILES[_unitProfile] || _UNIT_PROFILES.auto; }
         function _onUnitProfile(v) {
             _unitProfile = v;
-            if (document.getElementById('fileInputU').files.length) parseUnitPlanPdf();
+            if (_unitData || document.getElementById('fileInputU').files.length) parseUnitPlanPdf();
         }
         function _onUnitMergeParen(v) {
             _unitMergeParen = v;
-            if (document.getElementById('fileInputU').files.length) parseUnitPlanPdf();
+            if (_unitData || document.getElementById('fileInputU').files.length) parseUnitPlanPdf();
         }
         let _unitRows = [];
         document.getElementById('fileInputU').addEventListener('change', () => {
             const f = document.getElementById('fileInputU').files;
+            if (f && f.length) _unitData = null;   // 改選檔案 → 放棄先前載入的範例
             document.getElementById('fileNameDisplayU').textContent = (f && f.length) ? `已選擇：${f[0].name}` : '尚未選擇檔案';
         });
 
@@ -389,15 +396,44 @@
             br.row.unitNote = [...new Set(bUnits.join('；').split('；').filter(Boolean))].join('；');
         }
 
+        // 內建範例（與 repo 同源才能 fetch；PDF 為政府公開之單位預算案）
+        const _UNIT_SAMPLES = {
+            dgbas: { file: 'examples/dgbas-115.pdf', label: '115年度行政院主計總處單位預算案' },
+            moe: { file: 'examples/moe-115.pdf', label: '教育部115年度單位預算' },
+            moa: { file: 'examples/moa-115.pdf', label: '115年度農業部單位預算案' },
+        };
+        let _unitData = null, _unitLabel = '';   // 供切換機關規則時重新解析（檔案或範例皆適用）
+
+        async function loadUnitSample(key) {
+            const s = _UNIT_SAMPLES[key]; if (!s) return;
+            const st = document.getElementById('statusMessageU'), er = document.getElementById('errorOutputU');
+            er.style.display = 'none'; st.textContent = `正在下載範例：${s.label}…`; st.style.display = 'block';
+            document.getElementById('extractBtnU').disabled = true;
+            try {
+                const res = await fetch(s.file);
+                if (!res.ok) throw new Error(`下載失敗（HTTP ${res.status}）`);
+                _unitData = new Uint8Array(await res.arrayBuffer());
+                _unitLabel = s.label;
+                document.getElementById('fileNameDisplayU').textContent = `範例：${s.label}`;
+                document.getElementById('fileInputU').value = '';
+                await parseUnitPlanPdf();
+            } catch (e) {
+                st.style.display = 'none'; er.textContent = '載入範例失敗：' + e.message; er.style.display = 'block';
+                document.getElementById('extractBtnU').disabled = false;
+            }
+        }
+
         async function parseUnitPlanPdf() {
             const el = { st: document.getElementById('statusMessageU'), er: document.getElementById('errorOutputU'), cont: document.getElementById('tableContainerU') };
             const show = (e, t) => { el.st.style.display = 'none'; el.er.style.display = 'none'; e.textContent = t; e.style.display = 'block'; };
             const files = document.getElementById('fileInputU').files;
-            if (!files || !files.length) { show(el.er, '請先選擇 PDF 檔案！'); return; }
+            if (files && files.length) { _unitData = null; _unitLabel = files[0].name; }
+            else if (!_unitData) { show(el.er, '請先選擇 PDF 檔案，或點下方載入範例！'); return; }
             document.getElementById('extractBtnU').disabled = true;
             document.getElementById('exportBtnU').style.display = 'none';
             try {
-                const data = new Uint8Array(await files[0].arrayBuffer());
+                const data = _unitData || new Uint8Array(await files[0].arrayBuffer());
+                _unitData = data;   // 記住資料，切換機關規則時可直接重解析
                 const pdf = await pdfjsLib.getDocument({ data }).promise;
                 const out = [];
                 let plan = null, ctx = { l1: null }, br = null;
