@@ -234,6 +234,28 @@
                 return br.codeRows.filter(x => x.level === '用途別二級' && x.l1Code === l1.l1Code).length === 1;
             };
             const claimed = new Set();
+            // 第零輪：科目名＋金額同句（事實，最強證據）。名稱可打破同金額平手——
+            // 例：某分支 2003 教育訓練費／2036 按日按件計資酬金／2084 短程車資 金額都是 10，
+            // 同金額防護會讓三者全落空；靠「10.洽公短程車資10千元」的名稱即可歸給 2084。
+            // 要求「科目↔句子」雙向唯一，避免「保險」誤命中「保險費」這類名稱包含關係。
+            {
+                const cands = [];
+                for (const c of br.codeRows) {
+                    const nm = _ACCT[c.l2Code || c.l1Code]; if (!nm) continue;
+                    const re = new RegExp('(?<![\\d,])' + _unitFmt(c.amount) + '千元');
+                    frags.forEach((f, i) => { if (f.includes(nm) && re.test(f)) cands.push([c, i]); });
+                }
+                const perAcct = new Map(), perFrag = new Map();
+                for (const [c, i] of cands) {
+                    perAcct.set(c, (perAcct.get(c) || 0) + 1);
+                    perFrag.set(i, (perFrag.get(i) || 0) + 1);
+                }
+                for (const [c, i] of cands) {
+                    if (c.descIdx != null || claimed.has(i)) continue;
+                    if (perAcct.get(c) !== 1 || perFrag.get(i) !== 1) continue;
+                    c.descIdx = i; c.desc = frags[i]; c.nameMatched = true; claimed.add(i);
+                }
+            }
             // 第一輪：金額對齊（事實）
             for (const c of br.codeRows) {
                 if (cnt[c.amount] > 1 && !sameMoney(c)) continue;   // 真正的同金額多科目 → 留白
@@ -440,6 +462,7 @@
             if (r.headcount) return '推論（人數歸戶）';
             if (r.inferred) return '推論（順序界限）';
             if (r.aliasMatched) return '推論（別名歸戶）';
+            if (r.nameMatched) return '事實（名稱＋金額）';
             if (r.multiSum) return '事實（多句加總）';
             if (r.sumMatched) return '事實（單句加總）';
             return r.desc ? '事實（金額命中）' : '無文字支持';
@@ -495,7 +518,7 @@
             const noteSet = new Map();
             for (const r of rows) for (const c of _noteCats(r)) if (!noteSet.has(c)) noteSet.set(c, c);
             const noteOpts = [...noteSet].map(([v, t]) => ({ v, t }));
-            const mOrder = ['事實（金額命中）', '事實（單句加總）', '事實（多句加總）', '推論（別名歸戶）', '推論（順序界限）', '推論（人數歸戶）', '待確認（區間多科目）', '無文字支持'];
+            const mOrder = ['事實（名稱＋金額）', '事實（金額命中）', '事實（單句加總）', '事實（多句加總）', '推論（別名歸戶）', '推論（順序界限）', '推論（人數歸戶）', '待確認（區間多科目）', '無文字支持'];
             const mCount = {};
             for (const r of rows) { const k = _matchMethod(r); if (k) mCount[k] = (mCount[k] || 0) + 1; }
             const methodOpts = mOrder.filter(k => mCount[k]).map(k => ({ v: k, t: `${k}（${mCount[k]}）` }));
@@ -542,6 +565,7 @@
                 const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : ((r.inferred || r.headcount) ? ' narr-un' : ''));
                 const descTitle = r.ambiguous ? ' title="不確定：此金額無法對應到句子，區間內有多個科目，以下為候選文字（重複顯示），請人工確認"'
                     : r.sumMatched ? ' title="金額加總命中：句中三級明細金額加總＝本科目金額（事實）"'
+                        : r.nameMatched ? ' title="名稱＋金額命中：句中同時出現本科目名稱與金額，雙向唯一（事實，最強證據）"'
                         : r.multiSum ? ' title="多句加總命中：連續數句金額之和＝本科目金額（事實）"'
                         : r.aliasMatched ? ' title="別名歸戶：敘述用字與官方三級科目名不同，靠別名表對應"'
                             : r.headcount ? ' title="人數歸戶：待遇類科目敘述只寫人數不寫金額，依官方科目定義按人員類型歸戶（非金額命中，請人工確認）"'
