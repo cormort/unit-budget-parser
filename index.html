@@ -291,6 +291,19 @@
                 frags.forEach((f, i) => { if (al.some(p => f.includes(p))) hits.push(i); });
                 if (hits.length === 1) { c.descIdx = hits[0]; c.desc = frags[hits[0]]; c.aliasMatched = true; claimed.add(hits[0]); }
             }
+            // (n) 子項繼承父句科目。(n) 是父項底下的細目，父句常以「內容如下：／包括：」引出，
+            // 例：「7.一般事務費計編列4,740千元，內容如下：(1)…」其後 (1)(2)(3)(4) 全屬一般事務費
+            // （實測 1,660+1,398+1,275+407 = 4,740，與父額精確相符）。
+            // 必須排在順序界限之前——父子結構是比順序推論更強的證據，否則這些句子會先被
+            // 橘底候選搶走而錯掛到其他科目。限父句由二級科目認領；父為一級則跳過。
+            for (let i = 0; i < frags.length; i++) {
+                if (claimed.has(i) || !/^[（(]\d+[)）]/.test(frags[i])) continue;
+                let j = i - 1; while (j >= 0 && /^[（(]\d+[)）]/.test(frags[j])) j--;
+                if (j < 0) continue;
+                const owner = br.codeRows.find(c => c.descIdx === j && c.l2Code);
+                if (!owner) continue;
+                owner.desc += frags[i]; owner.inheritedSub = true; claimed.add(i);
+            }
             // 第二輪：順序界限（推論）。被前後已對到的科目夾住、且中間未認領句數==中間未對到科目數 → 1:1 依序指派
             const cr = br.codeRows;
             for (let i = 0; i < cr.length;) {
@@ -314,16 +327,6 @@
                     }
                 }
                 i = j;
-            }
-            // (n) 子項繼承父句科目（限父句由二級科目認領）。(n) 是父項底下的細目，父為二級時歸屬明確；
-            // 父為一級則跳過（實測會降低精準度）。此步在比對完成後才執行，不改斷句、不影響任何科目的比對結果。
-            for (let i = 0; i < frags.length; i++) {
-                if (claimed.has(i) || !/^[（(]\d+[)）]/.test(frags[i])) continue;
-                let j = i - 1; while (j >= 0 && /^[（(]\d+[)）]/.test(frags[j])) j--;
-                if (j < 0) continue;
-                const owner = br.codeRows.find(c => c.descIdx === j && c.l2Code);
-                if (!owner) continue;
-                owner.desc += frags[i]; owner.inheritedSub = true; claimed.add(i);
             }
             // 最後一道：人數歸戶。待遇類科目在敘述中多半只寫人數不寫金額（金額類規則對不到），
             // 依官方科目定義把「<人員類型>N人」歸到對應待遇科目。人數配對取自整段敘述
