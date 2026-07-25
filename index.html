@@ -157,6 +157,19 @@
         function _unitLines(items) {
             const ws = items.map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }))
                 .filter(w => w.s.trim() !== '').sort((a, b) => b.y - a.y);
+            // 說明欄的 x 範圍(>=359) 同時涵蓋頁面右上的頁首元素：
+            //   x=488 單位：新臺幣千元｜x=426 預算金額＋x=523 其數值｜x=375 說明(欄頭)
+            // 它們位於頁面上方，串接後會落在「跨頁交界」處，甚至插進被折斷的數字中間
+            //   （…所需經費12【單位：新臺幣千元預算金額1,620,528說明】,000千元）
+            // 故以「表頭列的 y」為界，只取其下方的敘述——用位置過濾而非字串刪除，
+            // 因為機關名與「說明」二字也會正當出現在正文（農業部門／美國農業部／編列說明），
+            // 字串刪除會破壞內容。無表格的頁（計畫內容／預期成果頁）退回用工作計畫表頭列為界。
+            // 取最下面那一列表頭為界（表格頁＝說明欄頭；無表格頁＝工作計畫名稱及編號列）
+            const heads = ws.filter(w => {
+                const t = w.s.replace(/[\s　]/g, '');
+                return (w.x >= 359 && t === '說明') || (w.x < 160 && (t === '分支計畫及用途別科目' || t === '工作計畫名稱及編號'));
+            });
+            const narrCut = heads.length ? Math.min(...heads.map(h => h.y)) - 2 : Infinity;
             const rows = [];
             for (const w of ws) {
                 let r = rows[rows.length - 1];
@@ -167,7 +180,7 @@
                     const m = s.match(_unitNum); r.amt += m[0];
                     const rest = s.slice(m[0].length); if (rest) r.unit.push([w.x, rest]);
                 } else if (w.x >= 292 && w.x < 359) r.unit.push([w.x, w.s]);
-                else if (w.x >= 359) r.narr.push([w.x, w.s]);
+                else if (w.x >= 359 && w.y < narrCut) r.narr.push([w.x, w.s]);   // 表頭列以上＝頁首，不收
             }
             const j = a => a.sort((x, y) => x[0] - y[0]).map(x => x[1]).join('');
             return rows.map(r => ({ name: j(r.name), amt: r.amt, unit: j(r.unit), narr: j(r.narr) }));
@@ -175,14 +188,12 @@
 
         // 清掉頁首/欄頭滲入右側說明的文字（上游清理，勝過下游打補丁）
         function _cleanNarr(s) {
-            // 機關名（頁首）依自動偵測或選定的機關規則移除——寫死單一機關會讓其他機關名滲進敘述
-            // （實測：教育部 8 次、農業部 5 次）
-            const names = [...(_activeProfile().agency || []), _unitAgency].filter(Boolean);
-            let t = s.replace(/[\s　]/g, '');
-            for (const n of [...new Set(names)]) t = t.split(n).join('');
-            return t.replace(/歲出計畫提要及分支計畫概況表/g, '')
-                .replace(/經資門併計/g, '').replace(/中華民國\d+年度/g, '')
-                .replace(/單位：新臺幣千元/g, '').replace(/預算金額[\d,]+/g, '').replace(/說明/g, '');
+            // 頁首已由 _unitLines 以位置過濾排除；此處僅保留兩個安全網字串，
+            // 兩者經三機關實測在正文中出現 0 次，刪除無風險。
+            // 刻意不再刪除「機關名」與「說明」——實測它們是正文用字（農業部門／美國農業部／
+            // 教育部文藝創作獎／編列說明，共 13＋9 次），字串刪除會破壞內容。
+            return s.replace(/[\s　]/g, '')
+                .replace(/單位：新臺幣千元/g, '').replace(/預算金額[\d,]+/g, '');
         }
 
         // 分支結案：把該分支的說明切句、依金額掛到對應科目、算出未認領句子（黃底）
