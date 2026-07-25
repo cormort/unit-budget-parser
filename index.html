@@ -30,6 +30,7 @@
         #unitTable .up-amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-family: 'SF Mono', Menlo, Consolas, monospace; }
         #unitTable .up-plan td { background: #eef4fb; font-weight: 700; }
         #unitTable .up-branch td { background: #f6f8fa; font-weight: 600; }
+        #unitTable .up-l1 td { font-weight: 600; background: #fbfcfe; }   /* 用途別一級＝上級科目(X000) */
         #unitTable .up-total td { background: #0056b3; color: #fff; font-weight: 700; position: sticky; top: 34px; z-index: 1; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
         #unitTable .up-unit { white-space: normal; line-height: 1.45; font-weight: normal; font-size: 12px; color: #4a5568; max-width: 170px; }
@@ -574,10 +575,13 @@
                         : r.aliasMatched ? ' title="別名歸戶：敘述用字與官方三級科目名不同，靠別名表對應"'
                             : r.headcount ? ' title="人數歸戶：待遇類科目敘述只寫人數不寫金額，依官方科目定義按人員類型歸戶（非金額命中，請人工確認）"'
                                 : (r.inferred ? ' title="依科目順序推論（前後皆對到），非金額命中，請人工確認"' : '');
+                // 用途別科目比照預算書 PDF 以縮排表達層級：X000 結尾為一級（靠左、加粗），
+                // 其餘四碼為其下的二級（縮排）。
+                const ind = r.level === '用途別二級' ? 'padding-left:1.7em;' : '';
                 body += `<tr class="${cls[r.level]}">`
                     + `<td style="white-space:nowrap;">${escapeHtml(r.planCode)}</td><td>${escapeHtml(r.planName)}</td>`
                     + `<td style="white-space:nowrap;">${escapeHtml(r.branchCode)}</td><td>${escapeHtml(r.branchName)}</td>`
-                    + `<td style="white-space:nowrap;">${escapeHtml(acctCode)}</td><td>${escapeHtml(acctName)}</td>`
+                    + `<td style="white-space:nowrap;${ind}">${escapeHtml(acctCode)}</td><td style="${ind}">${escapeHtml(acctName)}</td>`
                     + `<td class="up-amt"${bad(r) ? ' style="color:#dc3545;font-weight:700;" title="與下層加總不符"' : ''}>${fmt(r.amount)}</td>`
                     + `<td class="${descCls}"${descTitle}>${desc}</td>`
                     + `<td class="up-unit">${escapeHtml(r.unitNote || '')}</td></tr>`;
