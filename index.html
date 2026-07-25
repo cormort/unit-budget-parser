@@ -88,6 +88,27 @@
         // 二級科目別名：敘述用字與官方三級科目名不同時，靠別名歸戶（可持續擴充）
         const _ACCT_ALIAS = { '1040': ['超時工作加班費', '超時加班費', '不休假加班費', '未休假加班費'] };
 
+        // 人員類型 → 待遇類二級科目，依官方「歲出用途別科目分類定義」的科目定義：
+        //  1015 法定編制人員待遇：編制內職員、軍職、警察、消防、派用人員、學校教職員
+        //  1020 約聘僱人員待遇：依聘用條例／約僱辦法聘僱之人員、兼任及代課教師
+        //  1025 技工及工友待遇：依工友管理要點僱用之技工、工友（駕駛屬技工）
+        // 待遇科目在敘述中通常只寫人數不寫金額，故金額類規則對不到，靠人員類型歸戶。
+        const _PERSON_ACCT = {
+            '1010': ['政務人員'],
+            '1015': ['法定編制人員', '編制內職員', '職員', '警察', '駐警', '消防', '軍職', '派用人員', '專任教師'],
+            '1020': ['約聘僱人員', '聘用人員', '約僱人員', '約聘人員', '兼任教師', '代課教師'],
+            '1025': ['技工', '工友', '駕駛'],
+        };
+        // 抽出敘述中的「<人員類型>N人」配對（去掉前導連接詞）
+        function _personCounts(text) {
+            const out = [];
+            for (const m of text.matchAll(/([一-鿿（）()]{2,14}?)(\d[\d,]*)人/g)) {
+                const type = m[1].replace(/^(?:包括|含|計|另|共|及|暨|按|其中)+/, '').replace(/^[，、。：；]+/, '');
+                if (type) out.push({ text: type + m[2] + '人', type });
+            }
+            return out;
+        }
+
         // ── 機關規則檔 ──────────────────────────────────────────────
         // 通用規則已能處理三個實測機關；此處只放「各機關確實不同」的部分，可持續擴充。
         // mergeParen（(n) 子項併回父句）實測會降低精準度（農業部 二級有說明 221→208、
@@ -253,6 +274,18 @@
                 }
                 i = j;
             }
+            // 最後一道：人數歸戶。待遇類科目在敘述中多半只寫人數不寫金額（金額類規則對不到），
+            // 依官方科目定義把「<人員類型>N人」歸到對應待遇科目。人數配對取自整段敘述
+            // （教育部的人數藏在已被認領的有金額句中），不佔用句子、不影響其他科目歸戶。
+            const pcs = _personCounts(frags.join(''));
+            if (pcs.length) {
+                for (const c of br.codeRows) {
+                    if (c.desc || !c.l2Code) continue;
+                    const keys = _PERSON_ACCT[c.l2Code]; if (!keys) continue;
+                    const mine = pcs.filter(p => keys.some(k => p.type.includes(k)));
+                    if (mine.length) { c.desc = mine.map(p => p.text).join('、') + '。'; c.headcount = true; }
+                }
+            }
             // 把「N千元（政風處）」「N千元（含媒體政策及業務宣導費600千元）」這類緊接金額的括號註記
             // 抽到「業務別／單位別」欄，讓編列說明變短好讀。只收單位名與業務別註記，其餘保留原句。
             for (const c of br.codeRows) { const s = _pullUnit(c.desc); c.desc = s.text; c.unitNote = s.unit; }
@@ -391,11 +424,12 @@
                 const acctCode = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
                 const acctName = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name);
                 const desc = r.level === '分支計畫' ? branchDesc(r) : escapeHtml(r.desc || '');
-                const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : (r.inferred ? ' narr-un' : ''));
+                const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : ((r.inferred || r.headcount) ? ' narr-un' : ''));
                 const descTitle = r.ambiguous ? ' title="不確定：此金額無法對應到句子，區間內有多個科目，以下為候選文字（重複顯示），請人工確認"'
                     : r.sumMatched ? ' title="金額加總命中：句中三級明細金額加總＝本科目金額（事實）"'
                         : r.aliasMatched ? ' title="別名歸戶：敘述用字與官方三級科目名不同，靠別名表對應"'
-                            : (r.inferred ? ' title="依科目順序推論（前後皆對到），非金額命中，請人工確認"' : '');
+                            : r.headcount ? ' title="人數歸戶：待遇類科目敘述只寫人數不寫金額，依官方科目定義按人員類型歸戶（非金額命中，請人工確認）"'
+                                : (r.inferred ? ' title="依科目順序推論（前後皆對到），非金額命中，請人工確認"' : '');
                 body += `<tr class="${cls[r.level]}">`
                     + `<td style="white-space:nowrap;">${escapeHtml(r.planCode)}</td><td>${escapeHtml(r.planName)}</td>`
                     + `<td style="white-space:nowrap;">${escapeHtml(r.branchCode)}</td><td>${escapeHtml(r.branchName)}</td>`
