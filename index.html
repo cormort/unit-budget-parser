@@ -545,8 +545,13 @@
                 const re = new RegExp('(?<![\\d,])' + _unitFmt(amt) + '千元', 'g');
                 return h.replace(re, m => `<span class="up-hit">${m}</span>`);
             };
+            // 顯示用斷行：句號之後，以及每個編號子項 <n>／(n) 之前都換行，
+            // 避免「(3)通訊費編列4,260千元，內容如下：<1>…1,855千元。」擠成一行。
+            const dispSents = s => String(s || '')
+                .split(/(?<=。)|(?=[<＜]\d+[>＞])|(?=[（(]\d+[)）])/)
+                .map(x => x.trim()).filter(Boolean);
             const bullets = (arr, cls, amt) => `<ul class="up-list">` +
-                arr.map(f => `<li${cls ? ` class="${cls}"` : ''}>${hiAmt(escapeHtml(f.t), amt)}</li>`).join('') + `</ul>`;
+                arr.flatMap(f => dispSents(f.t)).map(t => `<li${cls ? ` class="${cls}"` : ''}>${hiAmt(escapeHtml(t), amt)}</li>`).join('') + `</ul>`;
             const branchDesc = r => {
                 const ov = _branchOverview(r), rs = _branchResidue(r);
                 const ovH = ov.length ? bullets(ov, '') : '';
@@ -557,8 +562,7 @@
             for (const r of view) {
                 const acctCode = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
                 const acctName = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name);
-                const sentences = s => String(s || '').split(/(?<=。)/).map(x => x.trim()).filter(Boolean);
-                const descSent = sentences(r.desc);
+                const descSent = dispSents(r.desc);
                 const desc = r.level === '分支計畫' ? branchDesc(r)
                     : descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount)
                         : hiAmt(escapeHtml(r.desc || ''), r.amount);
