@@ -35,6 +35,7 @@
         #unitTable .up-unit { white-space: normal; line-height: 1.45; font-weight: normal; font-size: 12px; color: #4a5568; max-width: 170px; }
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
+        #unitTable .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }
         #unitTable .up-list { margin: 0; padding-left: 1.15em; }
         #unitTable .up-list > li { margin: 2px 0; }
         #unitTable .up-residue > summary { cursor: pointer; color: #856404; font-weight: 600; margin-top: 4px; }
@@ -444,8 +445,15 @@
             const cls = { '分支計畫': 'up-branch', '用途別一級': 'up-l1', '用途別二級': 'up-l2' };
             // 分支列：總述句直接顯示；未歸戶句數量常很多（教育部單格曾達 2,150 字），
             // 收進可摺疊區塊，維持可讀又不丟資料。
-            const bullets = (arr, cls) => `<ul class="up-list">` +
-                arr.map(f => `<li${cls ? ` class="${cls}"` : ''}>${escapeHtml(f.t)}</li>`).join('') + `</ul>`;
+            // 把本列自己的金額在說明中高亮：橘底(區間多科目候選)常是因為該金額在段落裡出現多次，
+            // 標出來可一眼看到候選位置。先轉義再注入，邊界避免「30千元」命中「130千元」。
+            const hiAmt = (h, amt) => {
+                if (!amt) return h;
+                const re = new RegExp('(?<![\\d,])' + _unitFmt(amt) + '千元', 'g');
+                return h.replace(re, m => `<span class="up-hit">${m}</span>`);
+            };
+            const bullets = (arr, cls, amt) => `<ul class="up-list">` +
+                arr.map(f => `<li${cls ? ` class="${cls}"` : ''}>${hiAmt(escapeHtml(f.t), amt)}</li>`).join('') + `</ul>`;
             const branchDesc = r => {
                 const ov = _branchOverview(r), rs = _branchResidue(r);
                 const ovH = ov.length ? bullets(ov, '') : '';
@@ -459,7 +467,8 @@
                 const sentences = s => String(s || '').split(/(?<=。)/).map(x => x.trim()).filter(Boolean);
                 const descSent = sentences(r.desc);
                 const desc = r.level === '分支計畫' ? branchDesc(r)
-                    : descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '') : escapeHtml(r.desc || '');
+                    : descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount)
+                        : hiAmt(escapeHtml(r.desc || ''), r.amount);
                 const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : ((r.inferred || r.headcount) ? ' narr-un' : ''));
                 const descTitle = r.ambiguous ? ' title="不確定：此金額無法對應到句子，區間內有多個科目，以下為候選文字（重複顯示），請人工確認"'
                     : r.sumMatched ? ' title="金額加總命中：句中三級明細金額加總＝本科目金額（事實）"'
