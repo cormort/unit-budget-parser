@@ -193,6 +193,8 @@
         }
         const _noteCats = r => (r.unitNote || '').split('；').filter(Boolean).map(_noteCat);
 
+        const _fragAmts = t => [...String(t).matchAll(/([\d,]+)千元/g)].map(x => +x[1].replace(/,/g, ''));
+
         function _pullUnit(text) {
             if (!text) return { text: text || '', unit: '' };
             const notes = [];
@@ -256,6 +258,30 @@
                 });
                 if (hits.length === 1) { c.descIdx = hits[0]; c.desc = frags[hits[0]]; c.sumMatched = true; claimed.add(hits[0]); }
             }
+            // 第一輪三分二：多句連續加總（事實）。有些科目金額分散在連續數句，單句加總對不到，
+            // 例：對特種基金之補助 37,540,305 = 18,397,693+3,960,858+15,181,754。
+            // 僅接受「索引連續」且「和精確相等」且「解唯一」——多位數精確相等不可能是巧合。
+            for (const c of br.codeRows) {
+                if (c.descIdx != null || (cnt[c.amount] > 1 && !sameMoney(c))) continue;
+                const target = +c.amount;
+                const free = frags.map((f, i) => i).filter(i => !claimed.has(i) && /千元/.test(frags[i]));
+                const val = i => { const a = _fragAmts(frags[i]); return a.length === 1 ? a[0] : Math.max(...a); };
+                const runs = [];
+                for (let s = 0; s < free.length; s++) {
+                    let sum = 0;
+                    for (let e = s; e < free.length; e++) {
+                        if (e > s && free[e] !== free[e - 1] + 1) break;   // 句子必須相鄰
+                        sum += val(free[e]);
+                        if (e > s && sum === target) runs.push([s, e]);
+                        if (sum > target) break;
+                    }
+                }
+                if (runs.length === 1) {
+                    const idxs = free.slice(runs[0][0], runs[0][1] + 1);
+                    c.desc = idxs.map(i => frags[i]).join(''); c.descIdx = idxs[0]; c.multiSum = true;
+                    idxs.forEach(i => claimed.add(i));
+                }
+            }
             // 第一輪四分三：別名歸戶。敘述用字與官方三級名不同（超時工作加班費/不休假加班費）→ 靠別名表歸到二級
             for (const c of br.codeRows) {
                 if (c.descIdx != null || !c.l2Code) continue;
@@ -288,6 +314,16 @@
                     }
                 }
                 i = j;
+            }
+            // (n) 子項繼承父句科目（限父句由二級科目認領）。(n) 是父項底下的細目，父為二級時歸屬明確；
+            // 父為一級則跳過（實測會降低精準度）。此步在比對完成後才執行，不改斷句、不影響任何科目的比對結果。
+            for (let i = 0; i < frags.length; i++) {
+                if (claimed.has(i) || !/^[（(]\d+[)）]/.test(frags[i])) continue;
+                let j = i - 1; while (j >= 0 && /^[（(]\d+[)）]/.test(frags[j])) j--;
+                if (j < 0) continue;
+                const owner = br.codeRows.find(c => c.descIdx === j && c.l2Code);
+                if (!owner) continue;
+                owner.desc += frags[i]; owner.inheritedSub = true; claimed.add(i);
             }
             // 最後一道：人數歸戶。待遇類科目在敘述中多半只寫人數不寫金額（金額類規則對不到），
             // 依官方科目定義把「<人員類型>N人」歸到對應待遇科目。人數配對取自整段敘述
@@ -486,6 +522,7 @@
                 const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : ((r.inferred || r.headcount) ? ' narr-un' : ''));
                 const descTitle = r.ambiguous ? ' title="不確定：此金額無法對應到句子，區間內有多個科目，以下為候選文字（重複顯示），請人工確認"'
                     : r.sumMatched ? ' title="金額加總命中：句中三級明細金額加總＝本科目金額（事實）"'
+                        : r.multiSum ? ' title="多句加總命中：連續數句金額之和＝本科目金額（事實）"'
                         : r.aliasMatched ? ' title="別名歸戶：敘述用字與官方三級科目名不同，靠別名表對應"'
                             : r.headcount ? ' title="人數歸戶：待遇類科目敘述只寫人數不寫金額，依官方科目定義按人員類型歸戶（非金額命中，請人工確認）"'
                                 : (r.inferred ? ' title="依科目順序推論（前後皆對到），非金額命中，請人工確認"' : '');
