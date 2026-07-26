@@ -20,6 +20,10 @@
         .btn-success { background-color: #28a745; } .btn-success:hover { background-color: #218838; }
         .btn-secondary { background-color: #6c757d; } .btn-secondary:hover { background-color: #5a6268; }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
+        .disclaimer { border: 1px solid #ffc107; border-left: 6px solid #ffc107; background: #fff8e1; border-radius: 6px; padding: 14px 18px; margin: 18px 0 6px; }
+        .disclaimer strong { color: #7a5c00; }
+        .disclaimer ul { margin: 8px 0 0; padding-left: 1.3em; }
+        .disclaimer li { margin: 4px 0; color: #5c4a00; }
         .message { border-left: 4px solid; padding: 10px 15px; margin: 15px 0; border-radius: 4px; display: none; }
         .status-message { color: #004085; background-color: #cce5ff; border-color: #b8daff; }
         .error-message { color: #721c24; background-color: #f8d7da; border-color: #f5c6cb; }
@@ -47,6 +51,15 @@
 <body>
     <div class="container">
         <h1 style="text-align:center;">單位預算 歲出計畫提要及分支計畫概況表 解析工具</h1>
+
+        <div class="disclaimer">
+            <strong>⚠ 本工具僅供輔助核對，不能取代人工審閱——一切數據以政府公佈的預算書 PDF 原文為準。</strong>
+            <ul>
+                <li><strong>可信賴的部分</strong>：金額與科目結構直接取自 PDF 左側表格，並經上下合計驗算（二級→一級→分支→工作計畫，不符會標紅）。</li>
+                <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong></li>
+                <li><strong>已知限制</strong>：部分機關（如教育部）的說明按單位／業務撰寫而非按科目，多數句子無法對應到科目，屬資料本身的限制而非解析錯誤；「業務別註記／承辦單位」欄為程式自說明抽出的註記，非 PDF 原始欄位。</li>
+            </ul>
+        </div>
             <div class="step">
                 <h2>歲出計畫提要及分支計畫概況表</h2>
                 <p class="step-description">上傳<strong>單位預算案</strong>PDF（如「行政院主計總處單位預算案」）。系統解析「歲出計畫提要及分支計畫概況表」的左側結構表，依 <strong>工作計畫(10碼) → 分支計畫(2碼) → 用途別一級(X000) → 用途別二級</strong> 層級呈現，右側敘述文字不納入。內建各層級加總對帳（二級→一級→分支→工作計畫），不符會標紅。</p>
