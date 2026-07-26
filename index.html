@@ -218,7 +218,7 @@
         // 需歸成類別才能當篩選維度；承辦單位名則以原名為類別。
         const _NOTE_KEYS = ['媒體政策及業務宣導費', '資通安全經費', '原住民族教育經費', '附設實驗國民小學'];
         function _noteCat(s) {
-            const k = _NOTE_KEYS.find(k => s.includes(k)); if (k) return k;
+            const key = _NOTE_KEYS.find(x => s.includes(x)); if (key) return key;
             if (_UNIT_SUF.test(s)) return s;
             return s.replace(/^(?:其中)?含/, '').replace(/[\d,]+千元$/, '') || s;
         }
@@ -289,7 +289,7 @@
             }
             // 第一輪：金額對齊（事實）
             for (const c of br.codeRows) {
-                if (cnt[c.amount] > 1 && !sameMoney(c)) continue;   // 真正的同金額多科目 → 留白
+                if (c.descIdx != null || (cnt[c.amount] > 1 && !sameMoney(c))) continue;   // 已歸戶或真正的同金額多科目 → 跳過
                 const re = new RegExp('(?<![\\d,])' + _unitFmt(c.amount) + '千元');  // 邊界，避免 4千元 命中 64千元
                 const hits = [];
                 frags.forEach((f, i) => { if (re.test(f)) hits.push(i); });
@@ -425,7 +425,13 @@
             moe: { file: 'examples/moe-115.pdf', label: '教育部115年度單位預算' },
             moa: { file: 'examples/moa-115.pdf', label: '115年度農業部單位預算案' },
         };
-        let _unitData = null, _unitLabel = '';   // 供切換機關規則時重新解析（檔案或範例皆適用）
+        let _unitData = null;   // 供切換機關規則時重新解析（檔案或範例皆適用）
+
+        // 供回歸測試取用（頂層 let/const 不會成為 globalThis 屬性，需顯式掛上）
+        if (typeof globalThis !== 'undefined') {
+            globalThis.parseUnitDoc = parseUnitDoc;
+            globalThis.detectedAgency = () => _unitAgency;
+        }
 
         async function loadUnitSample(key) {
             const s = _UNIT_SAMPLES[key]; if (!s) return;
@@ -436,7 +442,6 @@
                 const res = await fetch(s.file);
                 if (!res.ok) throw new Error(`下載失敗（HTTP ${res.status}）`);
                 _unitData = new Uint8Array(await res.arrayBuffer());
-                _unitLabel = s.label;
                 document.getElementById('fileNameDisplayU').textContent = `範例：${s.label}`;
                 document.getElementById('fileInputU').value = '';
                 await parseUnitPlanPdf();
@@ -446,24 +451,16 @@
             }
         }
 
-        async function parseUnitPlanPdf() {
-            const el = { st: document.getElementById('statusMessageU'), er: document.getElementById('errorOutputU'), cont: document.getElementById('tableContainerU') };
-            const show = (e, t) => { el.st.style.display = 'none'; el.er.style.display = 'none'; e.textContent = t; e.style.display = 'block'; };
-            const files = document.getElementById('fileInputU').files;
-            if (files && files.length) { _unitData = null; _unitLabel = files[0].name; }
-            else if (!_unitData) { show(el.er, '請先選擇 PDF 檔案，或點下方載入範例！'); return; }
-            document.getElementById('extractBtnU').disabled = true;
-            document.getElementById('exportBtnU').style.display = 'none';
-            try {
-                const data = _unitData || new Uint8Array(await files[0].arrayBuffer());
-                _unitData = data;   // 記住資料，切換機關規則時可直接重解析
-                const pdf = await pdfjsLib.getDocument({ data }).promise;
+        // 解析核心：與 DOM 脫鉤，UI 與回歸測試共用同一份程式碼
+        // （測試若自行複寫這段迴圈就會與實際行為漂移——本專案曾因外部驗證腳本自行複寫而得出失真結論）
+        async function parseUnitDoc(pdf, onProgress) {
+            {
                 const out = [];
                 let plan = null, ctx = { l1: null }, br = null;
                 _unitAgency = '';               // 每次解析重新偵測機關名
                 const closedPlans = new Set();  // 已結案工作計畫；再出現＝進入附錄重複區
                 for (let i = 1; i <= pdf.numPages; i++) {
-                    show(el.st, `正在處理第 ${i} / ${pdf.numPages} 頁...`);
+                    if (onProgress) onProgress(i, pdf.numPages);
                     const page = await pdf.getPage(i);
                     const tc = await page.getTextContent();
                     const flat = tc.items.map(it => it.str).join('').replace(/[\s　]/g, '');
@@ -502,8 +499,28 @@
                     }
                 }
                 _finalizeBranch(br);
+                return out;
+            }
+        }
+
+        async function parseUnitPlanPdf() {
+            const el = { st: document.getElementById('statusMessageU'), er: document.getElementById('errorOutputU'), cont: document.getElementById('tableContainerU') };
+            const show = (e, t) => { el.st.style.display = 'none'; el.er.style.display = 'none'; e.textContent = t; e.style.display = 'block'; };
+            const files = document.getElementById('fileInputU').files;
+            if (files && files.length) _unitData = null;
+            else if (!_unitData) { show(el.er, '請先選擇 PDF 檔案，或點下方載入範例！'); return; }
+            document.getElementById('extractBtnU').disabled = true;
+            document.getElementById('exportBtnU').style.display = 'none';
+            try {
+                const data = _unitData || new Uint8Array(await files[0].arrayBuffer());
+                _unitData = data;   // 記住資料，切換機關規則時可直接重解析
+                const pdf = await pdfjsLib.getDocument({ data }).promise;
+                const out = await parseUnitDoc(pdf, (i, n) => show(el.st, `正在處理第 ${i} / ${n} 頁...`));
                 _unitRows = out;
-                _unitFilter.plan = _unitFilter.branch = _unitFilter.l1 = _unitFilter.l2 = _unitFilter.note = _unitFilter.method = '';
+                // 重新解析＝換了資料或規則，所有篩選條件（含說明搜尋）都要清掉，
+                // 否則舊條件會靜默過濾新結果
+                _unitFilter.plan = _unitFilter.branch = _unitFilter.l1 = _unitFilter.l2 = '';
+                _unitFilter.note = _unitFilter.method = _unitFilter.q = '';
                 if (!out.length) { show(el.er, '找不到「歲出計畫提要及分支計畫概況表」，請確認檔案。'); document.getElementById('extractBtnU').disabled = false; return; }
                 _renderUnitPlan(out);
                 const nplan = new Set(out.map(r => r.planCode)).size;

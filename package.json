@@ -1,0 +1,13 @@
+{
+  "name": "unit-budget-parser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "單位預算「歲出計畫提要及分支計畫概況表」PDF 解析工具（純前端單檔；此 package.json 僅供回歸測試使用）",
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "pdfjs-dist": "2.10.377"
+  }
+}
