@@ -427,11 +427,9 @@
         };
         let _unitData = null;   // 供切換機關規則時重新解析（檔案或範例皆適用）
 
-        // 供回歸測試取用（頂層 let/const 不會成為 globalThis 屬性，需顯式掛上）
-        if (typeof globalThis !== 'undefined') {
-            globalThis.parseUnitDoc = parseUnitDoc;
-            globalThis.detectedAgency = () => _unitAgency;
-        }
+        // 供回歸測試取用：function 宣告會自動成為全域屬性（parseUnitDoc 不需顯式掛上），
+        // 但頂層 let 不會，_unitAgency 需以存取器暴露
+        if (typeof globalThis !== 'undefined') globalThis.detectedAgency = () => _unitAgency;
 
         async function loadUnitSample(key) {
             const s = _UNIT_SAMPLES[key]; if (!s) return;
@@ -454,67 +452,67 @@
         // 解析核心：與 DOM 脫鉤，UI 與回歸測試共用同一份程式碼
         // （測試若自行複寫這段迴圈就會與實際行為漂移——本專案曾因外部驗證腳本自行複寫而得出失真結論）
         async function parseUnitDoc(pdf, onProgress) {
-            {
-                const out = [];
-                let plan = null, ctx = { l1: null }, br = null;
-                _unitAgency = '';               // 每次解析重新偵測機關名
-                const closedPlans = new Set();  // 已結案工作計畫；再出現＝進入附錄重複區
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    if (onProgress) onProgress(i, pdf.numPages);
-                    const page = await pdf.getPage(i);
-                    const tc = await page.getTextContent();
-                    const flat = tc.items.map(it => it.str).join('').replace(/[\s　]/g, '');
-                    if (!flat.includes(_UNIT_TITLE)) continue;
-                    // pdf.js 的字序與 pdfplumber 不同：表頭以「預算金額<金額><10碼><名稱>工作計畫名稱及編號」順序出現
-                    const hm = flat.match(/預算金額([\d,]+?)(\d{10})([^\d]+?)工作計畫名稱及編號/);
-                    // 機關名緊接在頁首標題之前 → 自動偵測（適用任何機關）。只在有表頭的頁偵測並限純中文，
-                    // 否則會在目次頁抓到頁碼與點線（實測「-----31－35二、」）。
-                    if (!_unitAgency && hm) {
-                        const am = flat.match(/([一-鿿]{2,12})歲出計畫提要及分支計畫概況表/);
-                        if (am) _unitAgency = am[1];
-                    }
-                    if (hm && (!plan || plan.code !== hm[2])) {
-                        if (closedPlans.has(hm[2])) break;   // 已結案的工作計畫又出現 → 附錄重複，停止解析
-                        _finalizeBranch(br); br = null;
-                        if (plan) closedPlans.add(plan.code);
-                        plan = { code: hm[2], name: hm[3], budget: hm[1] }; ctx = { l1: null };
-                    }
-                    if (!plan) continue;
-                    for (const ln of _unitLines(tc.items)) {
-                        const m = ln.name.trim().match(/^(\d{2,4})\s*(.+)$/);
-                        if (!m || !ln.amt) { if (br && ln.narr) br.narr += ln.narr; continue; }  // 純敘述列 → 併入當前分支
-                        const code = m[1], cname = m[2].trim(), amount = ln.amt.replace(/,/g, '');
-                        let level, l1c = '', l1n = '', l2c = '', l2n = '';
-                        if (code.length === 2) {
-                            _finalizeBranch(br);
-                            const row = { planCode: plan.code, planName: plan.name, planBudget: plan.budget, branchCode: code, branchName: cname, l1Code: '', l1Name: '', l2Code: '', l2Name: '', level: '分支計畫', amount, desc: '', descFrags: [] };
-                            out.push(row); br = { row, narr: ln.narr || '', codeRows: [] }; ctx = { l1: null };
-                            continue;
-                        } else if (code.length === 4 && code.endsWith('000')) { const nm = _ACCT[code] || cname; ctx.l1 = { code, name: nm }; level = '用途別一級'; l1c = code; l1n = nm; }
-                        else if (code.length === 4) { level = '用途別二級'; l1c = ctx.l1 ? ctx.l1.code : ''; l1n = ctx.l1 ? ctx.l1.name : ''; l2c = code; l2n = _ACCT[code] || cname; }
-                        else continue;
-                        const row = { planCode: plan.code, planName: plan.name, planBudget: plan.budget, branchCode: br ? br.row.branchCode : '', branchName: br ? br.row.branchName : '', l1Code: l1c, l1Name: l1n, l2Code: l2c, l2Name: l2n, level, amount, desc: '' };
-                        out.push(row);
-                        if (br) { br.codeRows.push(row); if (ln.narr) br.narr += ln.narr; }
-                    }
+            const out = [];
+            let plan = null, ctx = { l1: null }, br = null;
+            _unitAgency = '';               // 每次解析重新偵測機關名
+            const closedPlans = new Set();  // 已結案工作計畫；再出現＝進入附錄重複區
+            for (let i = 1; i <= pdf.numPages; i++) {
+                if (onProgress) onProgress(i, pdf.numPages);
+                const page = await pdf.getPage(i);
+                const tc = await page.getTextContent();
+                const flat = tc.items.map(it => it.str).join('').replace(/[\s　]/g, '');
+                if (!flat.includes(_UNIT_TITLE)) continue;
+                // pdf.js 的字序與 pdfplumber 不同：表頭以「預算金額<金額><10碼><名稱>工作計畫名稱及編號」順序出現
+                const hm = flat.match(/預算金額([\d,]+?)(\d{10})([^\d]+?)工作計畫名稱及編號/);
+                // 機關名緊接在頁首標題之前 → 自動偵測（適用任何機關）。只在有表頭的頁偵測並限純中文，
+                // 否則會在目次頁抓到頁碼與點線（實測「-----31－35二、」）。
+                if (!_unitAgency && hm) {
+                    const am = flat.match(/([一-鿿]{2,12})歲出計畫提要及分支計畫概況表/);
+                    if (am) _unitAgency = am[1];
                 }
-                _finalizeBranch(br);
-                return out;
+                if (hm && (!plan || plan.code !== hm[2])) {
+                    if (closedPlans.has(hm[2])) break;   // 已結案的工作計畫又出現 → 附錄重複，停止解析
+                    _finalizeBranch(br); br = null;
+                    if (plan) closedPlans.add(plan.code);
+                    plan = { code: hm[2], name: hm[3], budget: hm[1] }; ctx = { l1: null };
+                }
+                if (!plan) continue;
+                for (const ln of _unitLines(tc.items)) {
+                    const m = ln.name.trim().match(/^(\d{2,4})\s*(.+)$/);
+                    if (!m || !ln.amt) { if (br && ln.narr) br.narr += ln.narr; continue; }  // 純敘述列 → 併入當前分支
+                    const code = m[1], cname = m[2].trim(), amount = ln.amt.replace(/,/g, '');
+                    let level, l1c = '', l1n = '', l2c = '', l2n = '';
+                    if (code.length === 2) {
+                        _finalizeBranch(br);
+                        const row = { planCode: plan.code, planName: plan.name, planBudget: plan.budget, branchCode: code, branchName: cname, l1Code: '', l1Name: '', l2Code: '', l2Name: '', level: '分支計畫', amount, desc: '', descFrags: [] };
+                        out.push(row); br = { row, narr: ln.narr || '', codeRows: [] }; ctx = { l1: null };
+                        continue;
+                    } else if (code.length === 4 && code.endsWith('000')) { const nm = _ACCT[code] || cname; ctx.l1 = { code, name: nm }; level = '用途別一級'; l1c = code; l1n = nm; }
+                    else if (code.length === 4) { level = '用途別二級'; l1c = ctx.l1 ? ctx.l1.code : ''; l1n = ctx.l1 ? ctx.l1.name : ''; l2c = code; l2n = _ACCT[code] || cname; }
+                    else continue;
+                    const row = { planCode: plan.code, planName: plan.name, planBudget: plan.budget, branchCode: br ? br.row.branchCode : '', branchName: br ? br.row.branchName : '', l1Code: l1c, l1Name: l1n, l2Code: l2c, l2Name: l2n, level, amount, desc: '' };
+                    out.push(row);
+                    if (br) { br.codeRows.push(row); if (ln.narr) br.narr += ln.narr; }
+                }
             }
+            _finalizeBranch(br);
+            return out;
         }
 
         async function parseUnitPlanPdf() {
-            const el = { st: document.getElementById('statusMessageU'), er: document.getElementById('errorOutputU'), cont: document.getElementById('tableContainerU') };
+            const el = { st: document.getElementById('statusMessageU'), er: document.getElementById('errorOutputU') };
             const show = (e, t) => { el.st.style.display = 'none'; el.er.style.display = 'none'; e.textContent = t; e.style.display = 'block'; };
             const files = document.getElementById('fileInputU').files;
             if (files && files.length) _unitData = null;
             else if (!_unitData) { show(el.er, '請先選擇 PDF 檔案，或點下方載入範例！'); return; }
             document.getElementById('extractBtnU').disabled = true;
             document.getElementById('exportBtnU').style.display = 'none';
+            let task = null;
             try {
                 const data = _unitData || new Uint8Array(await files[0].arrayBuffer());
-                _unitData = data;   // 記住資料，切換機關規則時可直接重解析
-                const pdf = await pdfjsLib.getDocument({ data }).promise;
+                _unitData = data;   // 記住資料，切換機關規則時可直接重解析（傳給 worker 是結構化複製，destroy 後快取仍可用）
+                task = pdfjsLib.getDocument({ data });
+                const pdf = await task.promise;
                 const out = await parseUnitDoc(pdf, (i, n) => show(el.st, `正在處理第 ${i} / ${n} 頁...`));
                 _unitRows = out;
                 // 重新解析＝換了資料或規則，所有篩選條件（含說明搜尋）都要清掉，
@@ -528,6 +526,7 @@
                 show(el.st, `解析完成：${nplan} 個工作計畫、${out.length} 列。（機關規則：${pLbl}${_unitMergeParen ? '，(n) 併回父句' : ''}）`);
                 document.getElementById('exportBtnU').style.display = 'inline-block';
             } catch (e) { show(el.er, '解析失敗：' + e.message); console.error(e); }
+            finally { if (task) task.destroy(); }   // 釋放 pdf.js 文件與 worker，否則每次重解析都累積一組
             document.getElementById('extractBtnU').disabled = false;
         }
 

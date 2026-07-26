@@ -57,8 +57,10 @@ let failed = 0;
 for (const [file, want] of Object.entries(EXPECT)) {
     const ctx = loadTool(html);          // 每份重新載入，避免狀態互相污染
     const data = new Uint8Array(await readFile(new URL(`./examples/${file}`, import.meta.url)));
-    const pdf = await getDocument({ data }).promise;
+    const task = getDocument({ data });
+    const pdf = await task.promise;
     const rows = await ctx.parseUnitDoc(pdf);
+    await task.destroy();
 
     const l2 = rows.filter(r => r.level === '用途別二級');
     const got = {
