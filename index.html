@@ -183,7 +183,20 @@
                 else if (w.x >= 359 && w.y < narrCut) r.narr.push([w.x, w.s]);   // 表頭列以上＝頁首，不收
             }
             const j = a => a.sort((x, y) => x[0] - y[0]).map(x => x[1]).join('');
-            return rows.map(r => ({ name: j(r.name), amt: r.amt, unit: j(r.unit), narr: j(r.narr) }));
+            const out = rows.map(r => ({ _y: r._y, name: j(r.name), amt: r.amt, unit: j(r.unit), narr: j(r.narr) }));
+            // 名稱折行接回：欄寬不足時名稱會斷到下一列，該列只有名稱、沒有金額也沒有代碼開頭
+            //   例：「03 政府內部控制監督機制規劃及」＋「督導」、「07 拉近公私立學校學雜費差距專」＋「案減免」
+            // 不接回會讓分支計畫／科目名稱被截斷（實測三份共 36 筆）。判準從嚴：
+            // 下一列有名稱、無金額、不以代碼開頭、且與本列 y 距離 ≤20（同一儲存格內折行）。
+            for (let i = 0; i < out.length - 1; i++) {
+                const cur = out[i], nx = out[i + 1];
+                if (!cur.amt || !/^\s*\d{2,4}\s/.test(cur.name)) continue;
+                if (!nx.name || nx.amt || /^\s*\d{2,4}\s/.test(nx.name)) continue;
+                if (cur._y - nx._y > 20) continue;
+                cur.name += nx.name.trim();
+                nx.name = '';
+            }
+            return out;
         }
 
         // 清掉頁首/欄頭滲入右側說明的文字（上游清理，勝過下游打補丁）
