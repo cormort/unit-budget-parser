@@ -173,17 +173,16 @@
             const rows = [];
             for (const w of ws) {
                 let r = rows[rows.length - 1];
-                if (!r || Math.abs(r._y - w.y) > 6) { r = { _y: w.y, name: [], amt: '', unit: [], narr: [] }; rows.push(r); }
+                if (!r || Math.abs(r._y - w.y) > 6) { r = { _y: w.y, name: [], amt: '', narr: [] }; rows.push(r); }
                 const s = w.s.trim();  // pdf.js 常把整段（含前導全形空白）併成一個 item
                 if (w.x < 160) r.name.push([w.x, w.s]);
-                else if (w.x >= 200 && w.x < 292 && _unitNum.test(s)) {
-                    const m = s.match(_unitNum); r.amt += m[0];
-                    const rest = s.slice(m[0].length); if (rest) r.unit.push([w.x, rest]);
-                } else if (w.x >= 292 && w.x < 359) r.unit.push([w.x, w.s]);
+                // 金額格有時與承辦單位黏成一詞（'2,290綜合規劃處'），只取開頭數字，其餘捨棄
+                else if (w.x >= 200 && w.x < 292 && _unitNum.test(s)) r.amt += s.match(_unitNum)[0];
+                // x 292–359 為承辦單位欄，本工具不使用（該資訊改由編列說明中的括號註記取得）
                 else if (w.x >= 359 && w.y < narrCut) r.narr.push([w.x, w.s]);   // 表頭列以上＝頁首，不收
             }
             const j = a => a.sort((x, y) => x[0] - y[0]).map(x => x[1]).join('');
-            const out = rows.map(r => ({ _y: r._y, name: j(r.name), amt: r.amt, unit: j(r.unit), narr: j(r.narr) }));
+            const out = rows.map(r => ({ _y: r._y, name: j(r.name), amt: r.amt, narr: j(r.narr) }));
             // 名稱折行接回：欄寬不足時名稱會斷到下一列，該列只有名稱、沒有金額也沒有代碼開頭
             //   例：「03 政府內部控制監督機制規劃及」＋「督導」、「07 拉近公私立學校學雜費差距專」＋「案減免」
             // 不接回會讓分支計畫／科目名稱被截斷（實測三份共 36 筆）。判準從嚴：
