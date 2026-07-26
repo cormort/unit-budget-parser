@@ -318,6 +318,8 @@
                 if (c.descIdx != null || (cnt[c.amount] > 1 && !sameMoney(c))) continue;
                 const target = +c.amount;
                 const free = frags.map((f, i) => i).filter(i => !claimed.has(i) && /千元/.test(frags[i]));
+                // val 取 Math.max 是刻意的：曾實測改為「某額==其餘之和則取之，否則取加總」，
+                // 教育部 multiSum 11→7、孤兒句 464→514 反而更差，故維持 max。
                 const val = i => { const a = _fragAmts(frags[i]); return a.length === 1 ? a[0] : Math.max(...a); };
                 const runs = [];
                 for (let s = 0; s < free.length; s++) {
@@ -334,6 +336,38 @@
                     c.desc = idxs.map(i => frags[i]).join(''); c.descIdx = idxs[0]; c.multiSum = true;
                     idxs.forEach(i => claimed.add(i));
                 }
+            }
+            // 合併數歸戶（事實）：一句寫「數個科目合併的金額」——
+            //   「8.辦公器具與設施等養護費12千元」= 2066 器具養護費(6) + 2069 設施及機械設備養護費(6)。
+            // 判準三重：未歸戶二級科目子集(2~4個)之和==句中金額、通過名稱檢核的解唯一、
+            // 且每個成員科目名稱的特徵詞都出現在句中。第三條是關鍵——
+            // 純子集和唯一性會被小金額碰撞（實測教育部/農業部 23/2 筆假陽性全靠它排除，收緊後零誤判）。
+            // 句子同時歸給子集的每個科目。
+            {
+                const feat = nm => nm.replace(/(?:養護費|待遇|酬金|車資|旅費|租金|會費|服務費|事務費|訓練費|使用費|規費)$/, '').slice(0, 2) || nm.slice(0, 2);
+                frags.forEach((f, i) => {
+                    if (claimed.has(i)) return;
+                    const u = br.codeRows.filter(c => c.level === '用途別二級' && c.descIdx == null);
+                    const n = u.length;
+                    if (n < 2 || n > 16) return;
+                    for (const X of _fragAmts(f)) {
+                        const pass = [];
+                        for (let m = 1; m < (1 << n); m++) {
+                            const bits = m.toString(2).split('1').length - 1;
+                            if (bits < 2 || bits > 4) continue;
+                            let s = 0; for (let k = 0; k < n; k++) if (m & (1 << k)) s += +u[k].amount;
+                            if (s !== X) continue;
+                            let ok = true;
+                            for (let k = 0; k < n; k++) if (m & (1 << k)) { const nm = _ACCT[u[k].l2Code]; if (!nm || !f.includes(feat(nm))) { ok = false; break; } }
+                            if (ok) pass.push(m);
+                        }
+                        if (pass.length === 1) {
+                            for (let k = 0; k < n; k++) if (pass[0] & (1 << k)) { u[k].descIdx = i; u[k].desc = f; u[k].comboMatched = true; }
+                            claimed.add(i);
+                            break;
+                        }
+                    }
+                });
             }
             // 第一輪四分三：別名歸戶。敘述用字與官方三級名不同（超時工作加班費/不休假加班費）→ 靠別名表歸到二級
             for (const c of br.codeRows) {
@@ -380,6 +414,17 @@
                     }
                 }
                 i = j;
+            }
+            // 順序推論的金額否決：推論句含金額、卻與本科目金額矛盾（不含該額、加總也不等）
+            // → 降級為橘待確認。界限能排除錯誤答案——實測教育部 6 列 1:1 推論全數金額矛盾（即錯配），
+            // 主計總處/農業部各 1 列。金額可佐證者維持黃底推論。
+            for (const c of br.codeRows) {
+                if (!c.inferred) continue;
+                const a = _fragAmts(c.desc);
+                if (!a.length) continue;
+                const t = +c.amount;
+                if (a.includes(t) || a.reduce((s, x) => s + x, 0) === t) continue;
+                c.inferred = false; c.ambiguous = true;
             }
             // 最後一道：人數歸戶。待遇類科目在敘述中多半只寫人數不寫金額（金額類規則對不到），
             // 依官方科目定義把「<人員類型>N人」歸到對應待遇科目。人數配對取自整段敘述
@@ -540,6 +585,7 @@
             if (r.aliasMatched) return '推論（別名歸戶）';
             if (r.nameMatched) return '事實（名稱＋金額）';
             if (r.multiSum) return '事實（多句加總）';
+            if (r.comboMatched) return '事實（合併數）';
             if (r.sumMatched) return '事實（單句加總）';
             return r.desc ? '事實（金額命中）' : '無文字支持';
         }
@@ -594,7 +640,7 @@
             const noteSet = new Map();
             for (const r of rows) for (const c of _noteCats(r)) if (!noteSet.has(c)) noteSet.set(c, c);
             const noteOpts = [...noteSet].map(([v, t]) => ({ v, t }));
-            const mOrder = ['事實（名稱＋金額）', '事實（金額命中）', '事實（單句加總）', '事實（多句加總）', '推論（別名歸戶）', '推論（順序界限）', '推論（人數歸戶）', '待確認（區間多科目）', '無文字支持'];
+            const mOrder = ['事實（名稱＋金額）', '事實（金額命中）', '事實（單句加總）', '事實（多句加總）', '事實（合併數）', '推論（別名歸戶）', '推論（順序界限）', '推論（人數歸戶）', '待確認（區間多科目）', '無文字支持'];
             const mCount = {};
             for (const r of rows) { const k = _matchMethod(r); if (k) mCount[k] = (mCount[k] || 0) + 1; }
             const methodOpts = mOrder.filter(k => mCount[k]).map(k => ({ v: k, t: `${k}（${mCount[k]}）` }));
@@ -647,6 +693,7 @@
                     : r.sumMatched ? ' title="金額加總命中：句中三級明細金額加總＝本科目金額（事實）"'
                         : r.nameMatched ? ' title="名稱＋金額命中：句中同時出現本科目名稱與金額，雙向唯一（事實，最強證據）"'
                         : r.multiSum ? ' title="多句加總命中：連續數句金額之和＝本科目金額（事實）"'
+                        : r.comboMatched ? ' title="合併數命中：句中金額＝數個科目之和，且各科目名稱特徵皆在句中（事實，句子由各科目共享）"'
                         : r.aliasMatched ? ' title="別名歸戶：敘述用字與官方三級科目名不同，靠別名表對應"'
                             : r.headcount ? ' title="人數歸戶：待遇類科目敘述只寫人數不寫金額，依官方科目定義按人員類型歸戶（非金額命中，請人工確認）"'
                                 : (r.inferred ? ' title="依科目順序推論（前後皆對到），非金額命中，請人工確認"' : '');

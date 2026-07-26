@@ -12,7 +12,7 @@ import vm from 'node:vm';
 
 // ── 期望值：任何規則改動若動到既有歸屬，這裡就會失敗 ──
 const EXPECT = {
-    'dgbas-115.pdf': { agency: '行政院主計總處', plans: 12, rows: 296, l2: 239, withDesc: 228, orphans: 4 },
+    'dgbas-115.pdf': { agency: '行政院主計總處', plans: 12, rows: 296, l2: 239, withDesc: 232, orphans: 2 },
     'moe-115.pdf': { agency: '教育部', plans: 17, rows: 867, l2: 622, withDesc: 144, orphans: 464 },
     'moa-115.pdf': { agency: '農業部', plans: 8, rows: 439, l2: 319, withDesc: 217, orphans: 25 },
 };
