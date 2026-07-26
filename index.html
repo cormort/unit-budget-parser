@@ -35,7 +35,12 @@
         #unitTable .up-plan td { background: #eef4fb; font-weight: 700; }
         #unitTable .up-branch td { background: #f6f8fa; font-weight: 600; }
         #unitTable .up-l1 td { font-weight: 600; background: #fbfcfe; }   /* 用途別一級＝上級科目(X000) */
-        #unitTable .up-total td { background: #0056b3; color: #fff; font-weight: 700; position: sticky; top: 34px; z-index: 1; }
+        #unitTable .up-total td { background: #0056b3; color: #fff; font-weight: 700; position: sticky; top: var(--head-h, 34px); z-index: 1; }
+        .up-legend { font-size: 12px; color: #5c4a00; background: #fffdf5; border: 1px solid #f0e2b6; border-radius: 5px; padding: 6px 10px; margin: 8px 0 0; }
+        .up-legend .lg { display: inline-block; padding: 1px 6px; border-radius: 3px; margin-right: 8px; border: 1px solid #e2e8f0; }
+        .up-legend .lg-fact { background: #fff; }
+        .up-legend .lg-inf { background: #fff3cd; }
+        .up-legend .lg-amb { background: #ffd8b5; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
@@ -688,8 +693,17 @@
                     + `<td class="${descCls}"${descTitle}>${desc}</td>`
                     + `</tr>`;
             }
-            document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine +
-                `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明（科目列：白＝金額命中、黃＝順序推論／人數歸戶、橘＝區間多科目候選待確認；分支列＝總述＋未歸戶句摺疊。原文括號註記如「（政風處）」「（含媒體政策及業務宣導費600千元）」保留於句中，可用上方搜尋查找）</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
+            // 圖例不放在 <th> 內：表頭文字一長就換行變高，會與 sticky 的合計列重疊
+            const legend = `<div class="up-legend">編列說明底色：<span class="lg lg-fact">白＝金額／名稱命中（事實）</span>`
+                + `<span class="lg lg-inf">黃＝順序推論・人數歸戶</span>`
+                + `<span class="lg lg-amb">橘＝區間多科目候選，待確認</span>`
+                + `　分支列＝總述＋未歸戶句（可摺疊）。原文括號註記（如「（政風處）」）保留於句中，可用上方搜尋查找。</div>`;
+            document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine + legend +
+                `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
+            // 合計列固定在表頭下方：sticky top 必須等於「實際」表頭高度。
+            // 原本寫死 34px，表頭換行變高時就會被壓住（畫面上與欄名重疊）。
+            const _tbl = document.getElementById('unitTable');
+            if (_tbl && _tbl.tHead) _tbl.style.setProperty('--head-h', _tbl.tHead.getBoundingClientRect().height + 'px');
         }
 
         // 匯出目前查詢結果（xlsx/csv/json）；欄位與畫面一致
