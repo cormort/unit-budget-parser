@@ -42,6 +42,7 @@
         .up-legend .lg-inf { background: #fff3cd; }
         .up-legend .lg-amb { background: #ffd8b5; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
+        #unitTable .up-clause { font-weight: 600; margin-bottom: 3px; }  /* 整段一句時抽出的本科目子句 */
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
         #unitTable .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }
@@ -61,7 +62,7 @@
             <ul>
                 <li><strong>可信賴的部分</strong>：金額與科目結構直接取自 PDF 左側表格，並經上下合計驗算（二級→一級→分支→工作計畫，不符會標紅）。</li>
                 <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong></li>
-                <li><strong>已知限制</strong>：部分機關（如教育部）的說明按單位／業務撰寫而非按科目，多數句子無法對應到科目，屬資料本身的限制而非解析錯誤；「業務別註記／承辦單位」欄為程式自說明抽出的註記，非 PDF 原始欄位。</li>
+                <li><strong>已知限制</strong>：部分機關（如教育部）的說明按單位／業務撰寫而非按科目，多數句子無法對應到科目，屬資料本身的限制而非解析錯誤。</li>
             </ul>
         </div>
             <div class="step">
@@ -72,11 +73,14 @@
                     <input type="file" id="fileInputU" accept=".pdf">
                     <span id="fileNameDisplayU">尚未選擇檔案</span>
                     <button id="extractBtnU" class="btn-main" onclick="parseUnitPlanPdf()">解析</button>
-                    <label style="white-space:nowrap;">機關規則：<select id="profileU" onchange="_onUnitProfile(this.value)" style="padding:6px;border:1px solid #ccc;border-radius:4px;" title="通用規則已適用實測三機關；選特定機關可套用該機關的別名與業務別註記寫法">
+                    <label style="white-space:nowrap;">機關規則：<select id="profileU" onchange="_onUnitProfile(this.value)" style="padding:6px;border:1px solid #ccc;border-radius:4px;" title="通用規則已適用實測六機關；選特定機關可套用該機關的別名寫法">
                         <option value="auto">通用（自動偵測機關）</option>
                         <option value="dgbas">行政院主計總處</option>
                         <option value="edu">教育部</option>
                         <option value="moa">農業部</option>
+                        <option value="moi">內政部</option>
+                        <option value="motc">交通部</option>
+                        <option value="mohw">衛生福利部</option>
                     </select></label>
                     <label style="white-space:nowrap;font-size:13px;" title="實測會降低精準度（農業部 二級有說明 221→208、主計總處說明由精準句變整包），預設關閉"><input type="checkbox" id="mergeParenU" onchange="_onUnitMergeParen(this.checked)"> (n) 子項併回父句</label>
                     <span id="exportBtnU" style="display:none;">
@@ -90,6 +94,8 @@
                     <button class="btn-secondary" onclick="loadUnitSample('dgbas')">行政院主計總處 115年度</button>
                     <button class="btn-secondary" onclick="loadUnitSample('moe')">教育部 115年度</button>
                     <button class="btn-secondary" onclick="loadUnitSample('moa')">農業部 115年度</button>
+                    <button class="btn-secondary" onclick="loadUnitSample('motc')">交通部 115年度</button>
+                    <button class="btn-secondary" onclick="loadUnitSample('mohw')">衛生福利部 115年度</button>
                 </div>
             </div>
             <div id="statusMessageU" class="message status-message"></div>
@@ -139,7 +145,10 @@
         }
 
         // ── 機關規則檔 ──────────────────────────────────────────────
-        // 通用規則已能處理三個實測機關；此處只放「各機關確實不同」的部分，可持續擴充。
+        // 通用規則已能處理六個實測機關；此處只放「各機關確實不同」的部分，可持續擴充。
+        // 衛福部（整表縮放約 95%）與交通部（一般性補助款附冊）曾各自解析失敗，但成因是版面，
+        // 不是機關，已由 _unitPageHead 的表頭量測通盤解決——刻意不寫成機關別的座標例外，
+        // 否則每來一份新排版就得再加一條，且無法處理同一份 PDF 內含多種版面的情形。
         // mergeParen（(n) 子項併回父句）實測會降低精準度（農業部 二級有說明 221→208、
         // 主計總處 desc 由精準句變成整包），故各機關預設關閉，僅保留為選項。
         const _UNIT_PROFILES = {
@@ -147,6 +156,9 @@
             dgbas: { label: '行政院主計總處', agency: ['行政院主計總處'] },
             edu: { label: '教育部', agency: ['教育部'], alias: { '1040': ['超時工作加班費', '不休假加班費'] } },
             moa: { label: '農業部', agency: ['農業部'] },
+            moi: { label: '內政部', agency: ['內政部'] },
+            motc: { label: '交通部', agency: ['交通部', '一般性補助款－交通部'] },
+            mohw: { label: '衛生福利部', agency: ['衛生福利部', '一般性補助款－衛生福利部'] },
         };
         let _unitProfile = 'auto';       // 使用者選定的機關規則
         let _unitAgency = '';            // 自動偵測到的機關名（頁首標題前的字串）
@@ -169,39 +181,122 @@
 
         const _unitFmt = n => (+n).toLocaleString('en-US');
 
-        // 把一頁的字組成左表列 {name, amt, unit, narr}，依 y 鄰近分群
-        // x<160 代碼/名稱、200–292 金額、292–359 承辦單位、>=359 右側說明
-        function _unitLines(items) {
-            const ws = items.map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }))
-                .filter(w => w.s.trim() !== '').sort((a, b) => b.y - a.y);
-            // 說明欄的 x 範圍(>=359) 同時涵蓋頁面右上的頁首元素：
-            //   x=488 單位：新臺幣千元｜x=426 預算金額＋x=523 其數值｜x=375 說明(欄頭)
-            // 它們位於頁面上方，串接後會落在「跨頁交界」處，甚至插進被折斷的數字中間
+        // ── 版面量測：欄界與頁首界線一律由「表頭字的實際 x」推得，不寫死座標 ──────────
+        // 基準版面（主計總處／教育部／農業部／內政部／交通部本冊，五份完全一致）：
+        //   科目 36｜金額 203｜承辦單位 289｜說明 375
+        // 但實測另有兩種版面，寫死座標在兩者皆失效：
+        //  (1) 衛生福利部整張表縮到約 95%（34／193／275／356）。說明欄頭與內文（x=341）
+        //      都掉在原本寫死的 359 以下 → 該份 76 頁的說明欄「整欄」讀不到，二級 889 筆 desc 全空。
+        //  (2)「一般性補助款－X」附冊的表頭字被逐字拆成獨立 item（「分」「支」「計」「畫」…），
+        //      逐 item 比對字串必然落空 → 找不到表頭 → narrCut 退成 -Infinity，敘述同樣全丟。
+        // 故改為：字先依 y 分列、列內依 x 拼接後比對字串，命中再反查該字所屬 item 的 x。
+        // 偏移量以基準版面校準（36→160、203→200、289→292、375→359），既有三份結果不變。
+        const _BAND_FALLBACK = { name: 160, amt: 200, unit: 292, narr: 359 };
+        const _BAND_OFFSET = { name: 124, amt: -3, unit: 3, narr: -16 };
+        const _HEAD_LABEL = { name: '分支計畫及用途別科目', amt: '金額', unit: '承辦單位', narr: '說明' };
+
+        const _strip = s => s.replace(/[\s　]/g, '');
+
+        // 依 y 鄰近把字分列（列內依 x 排序）。ws 需已依 y 由大到小排序。
+        function _groupRows(ws) {
+            const rows = [];
+            for (const w of ws) {
+                let r = rows[rows.length - 1];
+                if (!r || Math.abs(r.y - w.y) > 6) { r = { y: w.y, ws: [] }; rows.push(r); }
+                r.ws.push(w);
+            }
+            for (const r of rows) r.ws.sort((a, b) => a.x - b.x);
+            return rows;
+        }
+        // 列內去空白拼接後的第 idx 個字，落在哪個 item → 回傳該 item 的 x
+        function _xOfChar(rws, idx) {
+            let n = 0;
+            for (const w of rws) {
+                const len = _strip(w.s).length;
+                if (idx < n + len) return w.x;
+                n += len;
+            }
+            return null;
+        }
+
+        // 量測一頁：欄界 bands、頁首界線 narrCut、工作計畫表頭 plan、機關名 agency
+        // prevNarr＝同一份 PDF 前一頁量到的說明欄左緣，供本頁說明字太少時沿用（見下）
+        function _unitPageHead(ws, prevNarr) {
+            const rows = _groupRows(ws);
+            const texts = rows.map(r => _strip(r.ws.map(w => w.s).join('')));
+
+            // 表格表頭列（含「分支計畫及用途別科目」）→ 由四個欄名的 x 推欄界
+            const bands = { ..._BAND_FALLBACK };
+            const ti = texts.findIndex(t => t.includes(_HEAD_LABEL.name));
+            if (ti >= 0) {
+                for (const k of Object.keys(_HEAD_LABEL)) {
+                    const at = texts[ti].indexOf(_HEAD_LABEL[k]);
+                    if (at < 0) continue;
+                    const x = _xOfChar(rows[ti].ws, at);
+                    if (x != null) bands[k] = x + _BAND_OFFSET[k];
+                }
+            }
+
+            // 頁首界線：取最下面那一列表頭（表格頁＝欄名列；計畫內容頁＝工作計畫名稱及編號列）。
+            // 說明欄的 x 範圍同時涵蓋頁面右上的頁首元素（單位：新臺幣千元／預算金額＋數值／說明欄頭），
+            // 它們串接後會落在跨頁交界處，甚至插進被折斷的數字中間
             //   （…所需經費12【單位：新臺幣千元預算金額1,620,528說明】,000千元）
-            // 故以「表頭列的 y」為界，只取其下方的敘述——用位置過濾而非字串刪除，
-            // 因為機關名與「說明」二字也會正當出現在正文（農業部門／美國農業部／編列說明），
-            // 字串刪除會破壞內容。無表格的頁（計畫內容／預期成果頁）退回用工作計畫表頭列為界。
-            // 取最下面那一列表頭為界（表格頁＝說明欄頭；無表格頁＝工作計畫名稱及編號列）
-            const heads = ws.filter(w => {
-                const t = w.s.replace(/[\s　]/g, '');
-                return (w.x >= 359 && t === '說明') || (w.x < 160 && (t === '分支計畫及用途別科目' || t === '工作計畫名稱及編號'));
-            });
-            // 目次頁也含標題（「一、歲出計畫提要及分支計畫概況表 ······ 451~454」），會被誤當資料頁；
-            // 它沒有任何表頭，其 x>=359 是頁碼範圍與點線，若照收就會混進前一頁分支的編列說明
-            // （實測教育部混入「451~454455~456457…」、農業部混入「頁次305－337-----…」）。
-            // 判準：完全找不到表頭的頁一律不收敘述。真正的資料頁必有「說明」欄頭，
-            // 計畫內容／預期成果頁必有「工作計畫名稱及編號」——實測 147 頁中僅 2 頁目次無表頭。
-            const narrCut = heads.length ? Math.min(...heads.map(h => h.y)) - 2 : -Infinity;
+            // 故以位置過濾而非字串刪除——機關名與「說明」二字也會正當出現在正文
+            // （農業部門／美國農業部／編列說明），字串刪除會破壞內容。
+            // 目次頁也含標題（「一、歲出計畫提要及分支計畫概況表 ······ 451~454」）卻無任何表頭，
+            // 其右側是頁碼與點線，照收會混進前一頁分支的說明（實測教育部混入「451~454455~456…」、
+            // 農業部混入「頁次305－337-----…」）。判準：完全找不到表頭的頁一律不收敘述。
+            const hy = [];
+            if (ti >= 0) hy.push(rows[ti].y);
+            const pi = texts.findIndex(t => t.includes('工作計畫名稱及編號'));
+            if (pi >= 0) hy.push(rows[pi].y);
+            const narrCut = hy.length ? Math.min(...hy) - 2 : -Infinity;
+
+            // 工作計畫表頭：代碼與名稱有時比欄名高出 7pt（附冊），超過分列容差，故以 ±12 取鄰近字重組。
+            // 兩種版面的 x 序皆為「欄名→10碼代碼＋名稱→預算金額→金額」，一條規則即可涵蓋。
+            let plan = null;
+            if (pi >= 0) {
+                const near = ws.filter(w => Math.abs(w.y - rows[pi].y) <= 12).sort((a, b) => a.x - b.x);
+                const m = _strip(near.map(w => w.s).join('')).match(/(\d{10})([^\d]+?)預算金額([\d,]+)/);
+                if (m) plan = { code: m[1], name: m[2], budget: m[3] };
+            }
+
+            // 機關名＝頁首標題列的上一列（適用「交通部」與「一般性補助款－交通部」）
+            let agency = '';
+            const bi = texts.findIndex(t => t.includes(_UNIT_TITLE));
+            if (bi > 0) {
+                const t = texts[bi - 1];
+                if (/^[一-鿿－]{2,20}$/.test(t)) agency = t;
+            }
+            // 說明欄左緣改用「內文眾數」而非欄名位置——欄名不可靠：本冊「說　…　明」是一個
+            // 跨欄散開的 item（x=375，內文 359），附冊卻是逐字擺位且置中（說 x=398、明 x=533，
+            // 內文仍在 364），用欄名推左緣會把整欄切掉。內文則穩定左對齊於單一 x 且重複數十次：
+            // 實測本冊 359×42、附冊 364×33、衛福部 341×22，訊號乾淨。
+            // 下界取 bands.unit，可排除承辦單位欄（本冊 271~289、衛福部 263~275 皆低於該界）。
+            const cnt = {};
+            for (const w of ws) if (w.y < narrCut && w.x >= bands.unit) cnt[w.x] = (cnt[w.x] || 0) + 1;
+            const mode = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+            // 少於 3 次不足採信（該頁說明欄可能只有一兩個字，或根本沒有說明），
+            // 沿用前一頁的量測值；沿用偏小是安全方向（承辦單位欄仍在界線之下，不會被誤收）。
+            if (mode && mode[1] >= 3) bands.narr = +mode[0];
+            else if (prevNarr != null) bands.narr = prevNarr;
+
+            return { bands, narrCut, plan, agency, narrX: mode && mode[1] >= 3 ? +mode[0] : null };
+        }
+
+        // 把一頁的字組成左表列 {name, amt, narr}，欄界取自 _unitPageHead 的量測值
+        function _unitLines(ws, head) {
+            const { bands, narrCut } = head;
             const rows = [];
             for (const w of ws) {
                 let r = rows[rows.length - 1];
                 if (!r || Math.abs(r._y - w.y) > 6) { r = { _y: w.y, name: [], amt: '', narr: [] }; rows.push(r); }
                 const s = w.s.trim();  // pdf.js 常把整段（含前導全形空白）併成一個 item
-                if (w.x < 160) r.name.push([w.x, w.s]);
+                if (w.x < bands.name) r.name.push([w.x, w.s]);
                 // 金額格有時與承辦單位黏成一詞（'2,290綜合規劃處'），只取開頭數字，其餘捨棄
-                else if (w.x >= 200 && w.x < 292 && _unitNum.test(s)) r.amt += s.match(_unitNum)[0];
-                // x 292–359 為承辦單位欄，本工具不使用（該資訊改由編列說明中的括號註記取得）
-                else if (w.x >= 359 && w.y < narrCut) r.narr.push([w.x, w.s]);   // 表頭列以上＝頁首，不收
+                else if (w.x >= bands.amt && w.x < bands.unit && _unitNum.test(s)) r.amt += s.match(_unitNum)[0];
+                // 承辦單位欄本工具不使用（該資訊改由編列說明中的括號註記取得）
+                else if (w.x >= bands.narr && w.y < narrCut) r.narr.push([w.x, w.s]);   // 表頭列以上＝頁首，不收
             }
             const j = a => a.sort((x, y) => x[0] - y[0]).map(x => x[1]).join('');
             const out = rows.map(r => ({ _y: r._y, name: j(r.name), amt: r.amt, narr: j(r.narr) }));
@@ -458,6 +553,8 @@
             dgbas: { file: 'examples/dgbas-115.pdf', label: '115年度行政院主計總處單位預算案' },
             moe: { file: 'examples/moe-115.pdf', label: '教育部115年度單位預算' },
             moa: { file: 'examples/moa-115.pdf', label: '115年度農業部單位預算案' },
+            motc: { file: 'examples/motc-115.pdf', label: '115年度交通部單位預算案' },
+            mohw: { file: 'examples/mohw-115.pdf', label: '115年度衛生福利部單位預算案' },
         };
         let _unitData = null;   // 供切換機關規則時重新解析（檔案或範例皆適用）
 
@@ -490,28 +587,27 @@
             let plan = null, ctx = { l1: null }, br = null;
             _unitAgency = '';               // 每次解析重新偵測機關名
             const closedPlans = new Set();  // 已結案工作計畫；再出現＝進入附錄重複區
+            let prevNarr = null;            // 前一頁量到的說明欄左緣（版面在附冊處會換）
             for (let i = 1; i <= pdf.numPages; i++) {
                 if (onProgress) onProgress(i, pdf.numPages);
                 const page = await pdf.getPage(i);
                 const tc = await page.getTextContent();
                 const flat = tc.items.map(it => it.str).join('').replace(/[\s　]/g, '');
                 if (!flat.includes(_UNIT_TITLE)) continue;
-                // pdf.js 的字序與 pdfplumber 不同：表頭以「預算金額<金額><10碼><名稱>工作計畫名稱及編號」順序出現
-                const hm = flat.match(/預算金額([\d,]+?)(\d{10})([^\d]+?)工作計畫名稱及編號/);
-                // 機關名緊接在頁首標題之前 → 自動偵測（適用任何機關）。只在有表頭的頁偵測並限純中文，
-                // 否則會在目次頁抓到頁碼與點線（實測「-----31－35二、」）。
-                if (!_unitAgency && hm) {
-                    const am = flat.match(/([一-鿿]{2,12})歲出計畫提要及分支計畫概況表/);
-                    if (am) _unitAgency = am[1];
-                }
-                if (hm && (!plan || plan.code !== hm[2])) {
-                    if (closedPlans.has(hm[2])) break;   // 已結案的工作計畫又出現 → 附錄重複，停止解析
+                const ws = tc.items.map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }))
+                    .filter(w => w.s.trim() !== '').sort((a, b) => b.y - a.y);
+                const head = _unitPageHead(ws, prevNarr);
+                if (head.narrX != null) prevNarr = head.narrX;
+                // 機關名只在有工作計畫表頭的頁偵測，否則會在目次頁抓到頁碼與點線（實測「-----31－35二、」）
+                if (!_unitAgency && head.plan && head.agency) _unitAgency = head.agency;
+                if (head.plan && (!plan || plan.code !== head.plan.code)) {
+                    if (closedPlans.has(head.plan.code)) break;   // 已結案的工作計畫又出現 → 附錄重複，停止解析
                     _finalizeBranch(br); br = null;
                     if (plan) closedPlans.add(plan.code);
-                    plan = { code: hm[2], name: hm[3], budget: hm[1] }; ctx = { l1: null };
+                    plan = head.plan; ctx = { l1: null };
                 }
                 if (!plan) continue;
-                for (const ln of _unitLines(tc.items)) {
+                for (const ln of _unitLines(ws, head)) {
                     const m = ln.name.trim().match(/^(\d{2,4})\s*(.+)$/);
                     if (!m || !ln.amt) { if (br && ln.narr) br.narr += ln.narr; continue; }  // 純敘述列 → 併入當前分支
                     const code = m[1], cname = m[2].trim(), amount = ln.amt.replace(/,/g, '');
@@ -588,6 +684,21 @@
         const _unitDesc = r => r.level === '分支計畫'
             ? [..._branchOverview(r), ..._branchResidue(r)].map(f => f.t).join('')
             : (r.desc || '');
+
+        // 說明子句：部分機關的編列說明整段只有一個句號（衛福部 228 筆超過 120 字，六份最高），
+        // 切句後整段就是一句，於是同一大段會掛在該分支底下每個科目——歸戶是對的
+        // （實測 95% 的說明確實含本科目名、94% 含本科目金額），但表格上看不出哪一段在講本科目。
+        // 故再從該段抽出「本科目名＋本科目金額千元」的子句供快速核對。
+        // 實測可抽出率：衛福部 78%、交通部 84%、內政部 64%、主計總處 67%；抽不出來就留空，回頭看整段。
+        // 這是衍生值，原 desc 一律保留不動——整段才是能回對 PDF 原文的證據，子句本身也可能切錯。
+        const _reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        function _descClause(r) {
+            const name = r.level === '用途別一級' ? r.l1Name : r.l2Name;
+            if (!r.desc || !name || r.desc.length <= 120) return '';
+            const amt = _unitFmt(r.amount).replace(/,/g, '[,，]?');
+            const m = r.desc.match(new RegExp(`[^、，（）()。]{0,12}${_reEsc(name)}[^、，（）()。]{0,12}${amt}\\s*千元`));
+            return m ? m[0] : '';
+        }
         function _unitPass(r) {
             const F = _unitFilter;
             return (!F.plan || r.planCode === F.plan) && (!F.branch || r.branchName === F.branch)
@@ -670,9 +781,15 @@
                 const acctCode = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
                 const acctName = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name);
                 const descSent = dispSents(r.desc);
+                const descBody = descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount)
+                    : hiAmt(escapeHtml(r.desc || ''), r.amount);
+                // 整段一句時，子句擺前面加粗、整段收進可展開——資訊不減，但一眼看得到本科目那一節
+                const clause = _descClause(r);
                 const desc = r.level === '分支計畫' ? branchDesc(r)
-                    : descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount)
-                        : hiAmt(escapeHtml(r.desc || ''), r.amount);
+                    : clause
+                        ? `<div class="up-clause">${hiAmt(escapeHtml(clause), r.amount)}</div>`
+                        + `<details class="up-residue"><summary>整段說明（${r.desc.length} 字）</summary>${descBody}</details>`
+                        : descBody;
                 const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : ((r.inferred || r.headcount) ? ' narr-un' : ''));
                 const descTitle = r.ambiguous ? ' title="不確定：此金額無法對應到句子，區間內有多個科目，以下為候選文字（重複顯示），請人工確認"'
                     : r.sumMatched ? ' title="金額加總命中：句中三級明細金額加總＝本科目金額（事實）"'
@@ -709,11 +826,11 @@
         // 匯出目前查詢結果（xlsx/csv/json）；欄位與畫面一致
         function exportUnit(kind) {
             if (!_unitRows.length) return;
-            const head = ['工作計畫編號', '工作計畫', '分支計畫編號', '分支計畫', '用途別科目代碼', '用途別科目', '金額', '編列說明', '歸戶方式'];
+            const head = ['工作計畫編號', '工作計畫', '分支計畫編號', '分支計畫', '用途別科目代碼', '用途別科目', '金額', '說明子句', '編列說明', '歸戶方式'];
             const acctC = r => r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
             const acctN = r => r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name);
             const view = _unitRows.filter(_unitPass);
-            const rowArr = r => [r.planCode, r.planName, r.branchCode, r.branchName, acctC(r), acctN(r), +r.amount, _unitDesc(r), _matchMethod(r)];
+            const rowArr = r => [r.planCode, r.planName, r.branchCode, r.branchName, acctC(r), acctN(r), +r.amount, _descClause(r), _unitDesc(r), _matchMethod(r)];
             const fname = '歲出計畫提要及分支計畫概況表';
             if (kind === 'xlsx') {
                 const wb = XLSX.utils.book_new();

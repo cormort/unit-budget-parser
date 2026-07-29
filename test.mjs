@@ -1,4 +1,4 @@
-// 回歸測試：用 examples/ 的三份真實 PDF 驗證解析結果沒有退化。
+// 回歸測試：用 examples/ 的五份真實 PDF 驗證解析結果沒有退化。
 //
 // 關鍵設計：直接載入 index.html 內的解析核心（parseUnitDoc）來跑，不自行複寫規則。
 // 本專案曾因外部驗證腳本自行複寫解析迴圈而得出失真結論（斷裂數字、孤兒句數量全錯），
@@ -15,6 +15,11 @@ const EXPECT = {
     'dgbas-115.pdf': { agency: '行政院主計總處', plans: 12, rows: 296, l2: 239, withDesc: 232, orphans: 2 },
     'moe-115.pdf': { agency: '教育部', plans: 17, rows: 867, l2: 622, withDesc: 144, orphans: 464 },
     'moa-115.pdf': { agency: '農業部', plans: 8, rows: 439, l2: 319, withDesc: 217, orphans: 25 },
+    // 以下兩份含「非基準版面」，是欄界量測（_unitPageHead）的回歸樣本，不可只留基準版面的三份：
+    //   mohw 整張表縮到約 95%（說明欄 x=356、內文 341，皆低於原本寫死的 359）——六份實測中僅此一份
+    //   motc／mohw 另含「一般性補助款－X」附冊，表頭字被逐字拆開且工作計畫表頭高出 7pt
+    'motc-115.pdf': { agency: '交通部', plans: 13, rows: 246, l2: 137, withDesc: 98, orphans: 91 },
+    'mohw-115.pdf': { agency: '衛生福利部', plans: 21, rows: 1221, l2: 889, withDesc: 651, orphans: 119 },
 };
 
 // 在 sandbox 中執行 index.html 的 <script>，以 stub 應付 DOM
