@@ -735,10 +735,24 @@
         // 分支列不再重印全文：已歸戶的句子在各科目列已顯示，這裡只留
         //   (a) 無金額的總述句（屬分支層，別處看不到）
         //   (b) 未歸戶的有金額句（待人工複核）
-        const _branchOverview = r => (r.descFrags || []).filter(f => f.matched && !/千元/.test(f.t));
-        const _branchResidue = r => (r.descFrags || []).filter(f => !f.matched);
+        // 分支列顯示哪些句子。原則仍是「不重印全文」（實測字數 主計總處 −85%、農業部 −63%），
+        // 但下列兩種句子本來就是在講分支本身，只掛在科目列上會錯位、分支列反而空白：
+        //   ① 明寫「本分支計畫…」（主計總處 23 個分支）
+        //   ② 句中金額＝分支總額（衛福部 49、教育部 24、交通部 3）
+        // 例：「本分支計畫為督導地方預算編製…計編列業務費628千元，內容如下：」——該分支只有一個
+        // 一級科目，整句被 2000 業務費 認領，分支列就空了。
+        // 這兩種句子改為「共享顯示」：科目列的歸屬完全不動，只是分支列也印一次，
+        // 故每個分支最多多印一句總述，不是把全文搬回來。分支列金額是小計、不進任何加總，無重複計算之虞。
+        const _BRANCH_SELF = /本分支計畫|本計畫係/;
+        const _branchOverview = r => {
+            // 邊界防護：分支總額 50 不可命中「150千元」
+            const amtRe = new RegExp(`(^|[^\\d,])${_unitFmt(r.amount).replace(/,/g, '[,，]?')}千元`);
+            return (r.descFrags || []).filter(f => f.matched
+                && (!/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t)));
+        };
+        // 分支列的說明＝總述句。未歸戶句已各自成列，不再串進分支列，否則匯出會重複一份。
         const _unitDesc = r => r.level === '分支計畫'
-            ? [..._branchOverview(r), ..._branchResidue(r)].map(f => f.t).join('')
+            ? _branchOverview(r).map(f => f.t).join('')
             : (r.desc || '');
 
         // 說明子句：部分機關的編列說明整段只有一個句號（衛福部 228 筆超過 120 字，六份最高），
