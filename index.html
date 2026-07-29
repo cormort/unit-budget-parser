@@ -43,6 +43,7 @@
         .up-legend .lg-amb { background: #ffd8b5; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
         #unitTable .up-clause { font-weight: 600; margin-bottom: 3px; }  /* 整段一句時抽出的本科目子句 */
+        #unitTable .up-orphan td { background: #fff3cd; }  /* 未歸戶句：獨立列，插在敘述順序的前後科目之間 */
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
         #unitTable .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }
@@ -643,7 +644,44 @@
                 }
             }
             _finalizeBranch(br);
-            return out;
+            return _insertOrphans(out);
+        }
+
+        // 未歸戶句改列為獨立資料列，插在「敘述順序上的前後科目之間」。
+        // 原本它們摺疊在分支列裡，匯出時被壓成同一個儲存格——教育部 464 句實質上看不到也搜不到。
+        // 插在原位是刻意的：孤兒句夾在句4與句6所屬的科目之間，讀的人一眼就能判斷它可能屬於誰。
+        // 這等於把「順序界限」的線索攤開給人看，而不是讓程式去猜（規則 8 猜錯會標橘，此處不猜）。
+        //
+        // 金額欄一律留空，絕不從句中抽數字填入：那筆錢通常已分散計入底下各科目
+        // （「…等經費1,757千元（政風處）」會散進一般事務費、旅費、物品），
+        // 再獨立成一列就是重複計算，任何 SUM 都會膨脹——這正是當初移除「業務別註記」欄的頭號原因。
+        // 同理，這些列以獨立 level 標示，明確排除在合計列與四層驗算之外。
+        function _insertOrphans(out) {
+            const res = [];
+            for (let i = 0; i < out.length;) {
+                const br = out[i++];
+                res.push(br);
+                if (br.level !== '分支計畫') continue;
+                const group = [];
+                while (i < out.length && out[i].level !== '分支計畫') group.push(out[i++]);
+                // 每個孤兒句的插入位置＝最後一個「已歸戶句序早於它」的科目列之後
+                const marks = (br.descFrags || []).map((f, idx) => ({ f, idx })).filter(x => !x.f.matched)
+                    .map(o => {
+                        let pos = 0;
+                        group.forEach((g, gi) => { if (g.descIdx != null && g.descIdx < o.idx) pos = gi + 1; });
+                        return { pos, text: o.f.t };
+                    });
+                for (let gi = 0; gi <= group.length; gi++) {
+                    for (const m of marks) if (m.pos === gi) res.push({
+                        planCode: br.planCode, planName: br.planName, planBudget: br.planBudget,
+                        branchCode: br.branchCode, branchName: br.branchName,
+                        l1Code: '', l1Name: '', l2Code: '', l2Name: '',
+                        level: '未歸戶說明', amount: '', desc: m.text, orphan: true,
+                    });
+                    if (gi < group.length) res.push(group[gi]);
+                }
+            }
+            return res;
         }
 
         async function parseUnitPlanPdf() {
@@ -681,6 +719,7 @@
         // 「無文字支持」= 連事實級與推論級都對不到（多為敘述按單位/業務切、金額不等於任何科目金額）。
         function _matchMethod(r) {
             if (r.level === '分支計畫') return '';
+            if (r.orphan) return '未歸戶（待人工歸戶）';
             if (r.ambiguous) return '待確認（區間多科目）';
             if (r.headcount) return '推論（人數歸戶）';
             if (r.inferred) return '推論（順序界限）';
@@ -733,7 +772,7 @@
                 const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
                 if (r.level === '分支計畫') { bra[bk] = a; pls[r.planCode] = (pls[r.planCode] || 0) + a; }
                 else if (r.level === '用途別一級') { l1a[lk] = a; brs[bk] = (brs[bk] || 0) + a; }
-                else { l2s[lk] = (l2s[lk] || 0) + a; }
+                else if (r.level === '用途別二級') { l2s[lk] = (l2s[lk] || 0) + a; }
             }
             const bad = r => {
                 const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
@@ -753,7 +792,7 @@
             const brOpts = distinct(r => r.branchCode, r => r.branchName, r => r.branchName);
             const l1Opts = distinct(r => r.l1Code, r => r.l1Code, r => `${r.l1Code} ${r.l1Name}`);
             const l2Opts = distinct(r => r.l2Code, r => r.l2Code, r => `${r.l2Code} ${r.l2Name}`);
-            const mOrder = ['事實（名稱＋金額）', '事實（金額命中）', '事實（單句加總）', '事實（多句加總）', '事實（合併數）', '推論（別名歸戶）', '推論（順序界限）', '推論（人數歸戶）', '待確認（區間多科目）', '無文字支持'];
+            const mOrder = ['事實（名稱＋金額）', '事實（金額命中）', '事實（單句加總）', '事實（多句加總）', '事實（合併數）', '推論（別名歸戶）', '推論（順序界限）', '推論（人數歸戶）', '待確認（區間多科目）', '無文字支持', '未歸戶（待人工歸戶）'];
             const mCount = {};
             for (const r of rows) { const k = _matchMethod(r); if (k) mCount[k] = (mCount[k] || 0) + 1; }
             const methodOpts = mOrder.filter(k => mCount[k]).map(k => ({ v: k, t: `${k}（${mCount[k]}）` }));
@@ -770,9 +809,8 @@
             const total = (leaves.length ? leaves : view).reduce((s, r) => s + +r.amount, 0);
             const totalRow = `<tr class="up-total"><td colspan="6">合計（目前篩選：${leaves.length ? leaves.length + ' 筆二級科目' : view.length + ' 筆'}）</td><td class="up-amt">${fmt(total)}</td><td></td></tr>`;
 
-            const cls = { '分支計畫': 'up-branch', '用途別一級': 'up-l1', '用途別二級': 'up-l2' };
-            // 分支列：總述句直接顯示；未歸戶句數量常很多（教育部單格曾達 2,150 字），
-            // 收進可摺疊區塊，維持可讀又不丟資料。
+            const cls = { '分支計畫': 'up-branch', '用途別一級': 'up-l1', '用途別二級': 'up-l2', '未歸戶說明': 'up-orphan' };
+            // 分支列只留無金額的總述句；未歸戶句已各自成列（見 _insertOrphans）。
             // 把本列自己的金額在說明中高亮：橘底(區間多科目候選)常是因為該金額在段落裡出現多次，
             // 標出來可一眼看到候選位置。先轉義再注入，邊界避免「30千元」命中「130千元」。
             const hiAmt = (h, amt) => {
@@ -788,15 +826,14 @@
             const bullets = (arr, cls, amt) => `<ul class="up-list">` +
                 arr.flatMap(f => dispSents(f.t)).map(t => `<li${cls ? ` class="${cls}"` : ''}>${hiAmt(escapeHtml(t), amt)}</li>`).join('') + `</ul>`;
             const branchDesc = r => {
-                const ov = _branchOverview(r), rs = _branchResidue(r);
-                const ovH = ov.length ? bullets(ov, '') : '';
-                if (!rs.length) return ovH;
-                return ovH + `<details class="up-residue"><summary>未歸戶說明 ${rs.length} 句（點開檢視，黃底＝未對到科目）</summary>${bullets(rs, 'narr-un')}</details>`;
+                // 未歸戶句已插為獨立列（見 _insertOrphans），此處只留無金額的總述句
+                const ov = _branchOverview(r);
+                return ov.length ? bullets(ov, '') : '';
             };
             let body = '';
             for (const r of view) {
                 const acctCode = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
-                const acctName = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name);
+                const acctName = r.orphan ? '未歸戶' : (r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name));
                 const descSent = dispSents(r.desc);
                 const descBody = descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount)
                     : hiAmt(escapeHtml(r.desc || ''), r.amount);
@@ -823,7 +860,7 @@
                     + `<td style="white-space:nowrap;">${escapeHtml(r.planCode)}</td><td>${escapeHtml(r.planName)}</td>`
                     + `<td style="white-space:nowrap;">${escapeHtml(r.branchCode)}</td><td>${escapeHtml(r.branchName)}</td>`
                     + `<td style="white-space:nowrap;${ind}">${escapeHtml(acctCode)}</td><td style="${ind}">${escapeHtml(acctName)}</td>`
-                    + `<td class="up-amt"${bad(r) ? ' style="color:#dc3545;font-weight:700;" title="與下層加總不符"' : ''}>${fmt(r.amount)}</td>`
+                    + `<td class="up-amt"${bad(r) ? ' style="color:#dc3545;font-weight:700;" title="與下層加總不符"' : ''}>${r.amount === '' ? '' : fmt(r.amount)}</td>`
                     + `<td class="${descCls}"${descTitle}>${desc}</td>`
                     + `</tr>`;
             }
@@ -831,7 +868,8 @@
             const legend = `<div class="up-legend">編列說明底色：<span class="lg lg-fact">白＝金額／名稱命中（事實）</span>`
                 + `<span class="lg lg-inf">黃＝順序推論・人數歸戶</span>`
                 + `<span class="lg lg-amb">橘＝區間多科目候選，待確認</span>`
-                + `　分支列＝總述＋未歸戶句（可摺疊）。</div>`;
+                + `<span class="lg lg-inf">黃底整列＝未歸戶句，插在敘述順序的前後科目之間，金額欄留空待人工歸戶</span>`
+                + `　分支列＝無金額總述句。</div>`;
             document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine + legend +
                 `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
             // 合計列固定在表頭下方：sticky top 必須等於「實際」表頭高度。
@@ -845,9 +883,9 @@
             if (!_unitRows.length) return;
             const head = ['工作計畫編號', '工作計畫', '分支計畫編號', '分支計畫', '用途別科目代碼', '用途別科目', '金額', '說明子句', '編列說明', '歸戶方式'];
             const acctC = r => r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
-            const acctN = r => r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name);
+            const acctN = r => r.orphan ? '未歸戶' : (r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name));
             const view = _unitRows.filter(_unitPass);
-            const rowArr = r => [r.planCode, r.planName, r.branchCode, r.branchName, acctC(r), acctN(r), +r.amount, _descClause(r), _unitDesc(r), _matchMethod(r)];
+            const rowArr = r => [r.planCode, r.planName, r.branchCode, r.branchName, acctC(r), acctN(r), r.amount === '' ? '' : +r.amount, _descClause(r), _unitDesc(r), _matchMethod(r)];
             const fname = '歲出計畫提要及分支計畫概況表';
             if (kind === 'xlsx') {
                 const wb = XLSX.utils.book_new();

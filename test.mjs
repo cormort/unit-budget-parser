@@ -11,15 +11,16 @@ import { readFile } from 'fs/promises';
 import vm from 'node:vm';
 
 // ── 期望值：任何規則改動若動到既有歸屬，這裡就會失敗 ──
+// rows 含「未歸戶說明」列（每個未歸戶句一列，插在敘述順序的前後科目之間），故 rows = 科目列 + orphans
 const EXPECT = {
-    'dgbas-115.pdf': { agency: '行政院主計總處', plans: 12, rows: 296, l2: 239, withDesc: 232, orphans: 2 },
-    'moe-115.pdf': { agency: '教育部', plans: 17, rows: 867, l2: 622, withDesc: 144, orphans: 464 },
-    'moa-115.pdf': { agency: '農業部', plans: 8, rows: 439, l2: 319, withDesc: 217, orphans: 25 },
+    'dgbas-115.pdf': { agency: '行政院主計總處', plans: 12, rows: 298, l2: 239, withDesc: 232, orphans: 2 },
+    'moe-115.pdf': { agency: '教育部', plans: 17, rows: 1331, l2: 622, withDesc: 144, orphans: 464 },
+    'moa-115.pdf': { agency: '農業部', plans: 8, rows: 464, l2: 319, withDesc: 217, orphans: 25 },
     // 以下兩份含「非基準版面」，是欄界量測（_unitPageHead）的回歸樣本，不可只留基準版面的三份：
     //   mohw 整張表縮到約 95%（說明欄 x=356、內文 341，皆低於原本寫死的 359）——六份實測中僅此一份
     //   motc／mohw 另含「一般性補助款－X」附冊，表頭字被逐字拆開且工作計畫表頭高出 7pt
-    'motc-115.pdf': { agency: '交通部', plans: 13, rows: 246, l2: 137, withDesc: 101, orphans: 90 },
-    'mohw-115.pdf': { agency: '衛生福利部', plans: 21, rows: 1221, l2: 889, withDesc: 719, orphans: 117 },
+    'motc-115.pdf': { agency: '交通部', plans: 13, rows: 336, l2: 137, withDesc: 101, orphans: 90 },
+    'mohw-115.pdf': { agency: '衛生福利部', plans: 21, rows: 1338, l2: 889, withDesc: 719, orphans: 117 },
 };
 
 // 在 sandbox 中執行 index.html 的 <script>，以 stub 應付 DOM
@@ -47,7 +48,7 @@ function reconcile(rows) {
         const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
         if (r.level === '分支計畫') { bra[bk] = a; pls[r.planCode] = (pls[r.planCode] || 0) + a; }
         else if (r.level === '用途別一級') { l1a[lk] = a; brs[bk] = (brs[bk] || 0) + a; }
-        else l2s[lk] = (l2s[lk] || 0) + a;
+        else if (r.level === '用途別二級') l2s[lk] = (l2s[lk] || 0) + a;   // 未歸戶說明列無金額，不入加總
     }
     const bad = [];
     for (const k in l1a) if (l2s[k] !== undefined && l2s[k] !== l1a[k]) bad.push(`一級 ${k}: ${l1a[k]} ≠ Σ二級 ${l2s[k]}`);
