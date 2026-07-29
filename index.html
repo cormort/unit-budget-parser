@@ -657,6 +657,23 @@
             return _insertOrphans(out);
         }
 
+        // 標記「同一分支內被多列共用」的說明文字（供 _descClause 判斷要不要抽子句）。
+        // 判準用「這段文字是否被多列共用」而非「整段有多長」：共用時才需要指出「本列講的是哪一段」，
+        // 獨佔時整段就是本列的說明，攤開反而清楚。
+        // 原本以「整段 >120 字」為門檻，同一種句子會因差幾個字而換一種呈現——實測主計總處三個分支的
+        // 總述句（124／118／90 字）都同時出現在分支列與其下的 2000 業務費 列，性質完全相同，
+        // 卻只有 124 字那個被摺疊，看起來像壞掉。
+        function _markSharedDesc(br, group) {
+            const amtRe = new RegExp(`(^|[^\\d,])${_unitFmt(br.amount).replace(/,/g, '[,，]?')}千元`);
+            const cnt = new Map();
+            const bump = t => cnt.set(t, (cnt.get(t) || 0) + 1);
+            // 分支列實際顯示的總述句也算一次（總述句常同時出現在分支列與其下唯一的一級科目）
+            for (const f of br.descFrags || [])
+                if (f.matched && (!/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t))) bump(f.t);
+            for (const g of group) if (g.desc) bump(g.desc);
+            for (const g of group) if (g.desc && cnt.get(g.desc) > 1) g.descShared = true;
+        }
+
         // 未歸戶句改列為獨立資料列，插在「敘述順序上的前後科目之間」。
         // 原本它們摺疊在分支列裡，匯出時被壓成同一個儲存格——教育部 464 句實質上看不到也搜不到。
         // 插在原位是刻意的：孤兒句夾在句4與句6所屬的科目之間，讀的人一眼就能判斷它可能屬於誰。
@@ -675,6 +692,7 @@
                 const group = [];
                 while (i < out.length && out[i].level !== '分支計畫') group.push(out[i++]);
                 // 每個孤兒句的插入位置＝最後一個「已歸戶句序早於它」的科目列之後
+                _markSharedDesc(br, group);
                 const marks = (br.descFrags || []).map((f, idx) => ({ f, idx })).filter(x => !x.f.matched)
                     .map(o => {
                         let pos = 0;
@@ -764,7 +782,7 @@
             ? _branchOverview(r).map(f => f.t).join('')
             : (r.desc || '');
 
-        // 說明子句：部分機關的編列說明整段只有一個句號（衛福部 228 筆超過 120 字，六份最高），
+        // 說明子句：同一段說明被該分支多列共用時（整段一句、或總述句同時屬於分支與一級科目），
         // 切句後整段就是一句，於是同一大段會掛在該分支底下每個科目——歸戶是對的
         // （實測 95% 的說明確實含本科目名、94% 含本科目金額），但表格上看不出哪一段在講本科目。
         // 故再從該段抽出「本科目名＋本科目金額千元」的子句供快速核對。
@@ -773,7 +791,7 @@
         const _reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         function _descClause(r) {
             const name = r.level === '用途別一級' ? r.l1Name : r.l2Name;
-            if (!r.desc || !name || r.desc.length <= 120) return '';
+            if (!r.desc || !name || !r.descShared) return '';
             const amt = _unitFmt(r.amount).replace(/,/g, '[,，]?');
             const m = r.desc.match(new RegExp(`[^、，（）()。]{0,12}${_reEsc(name)}[^、，（）()。]{0,12}${amt}\\s*千元`));
             return m ? m[0] : '';
