@@ -561,9 +561,19 @@
                 if (hits.length !== 1) continue;
                 c.descIdx = hits[0]; c.desc = frags[hits[0]]; c.nameMatched = true; claimed.add(hits[0]);
             }
-            // 無金額句（「本分支計畫係辦理…」「其內容如下：」）本質屬分支計畫層、不歸任何科目，
-            // 視為已歸屬（不標黃），黃底只留給「有金額卻對不到科目」的真正待查句。
-            br.row.descFrags = frags.map((f, idx) => ({ t: f, matched: claimed.has(idx) || !/千元/.test(f) }));
+            // 歸屬到「分支計畫層」的句子（不標黃、不另立未歸戶列），三種：
+            //   ① 無金額句（「本分支計畫係辦理…」「其內容如下：」）
+            //   ② 明寫「本分支計畫…／本計畫係…」
+            //   ③ 句中金額＝分支總額（如「本分支計畫為一般行政管理工作…計編列47,217千元」）
+            // ②③ 的金額是分支小計、不等於任何科目金額，故永遠不會被科目認領；若只看「有沒有被科目
+            // 認領」就會把它們判成未歸戶而另立黃底列，分支列反而空白——它們不是無主的句子，
+            // 主人就是分支本身。黃底只留給「有金額卻對不到任何層級」的真正待查句。
+            // ③ 比對分支總額時做邊界防護：總額 50 不可命中「150千元」。
+            const _brAmt = new RegExp(`(^|[^\\d,])${_unitFmt(br.row.amount).replace(/,/g, '[,，]?')}千元`);
+            const _brSelf = f => _BRANCH_SELF.test(f) || _brAmt.test(f);
+            br.row.descFrags = frags.map((f, idx) => ({
+                t: f, matched: claimed.has(idx) || !/千元/.test(f) || _brSelf(f),
+            }));
         }
 
         // 內建範例（與 repo 同源才能 fetch；PDF 為政府公開之單位預算案）
@@ -745,7 +755,6 @@
         // 故每個分支最多多印一句總述，不是把全文搬回來。分支列金額是小計、不進任何加總，無重複計算之虞。
         const _BRANCH_SELF = /本分支計畫|本計畫係/;
         const _branchOverview = r => {
-            // 邊界防護：分支總額 50 不可命中「150千元」
             const amtRe = new RegExp(`(^|[^\\d,])${_unitFmt(r.amount).replace(/,/g, '[,，]?')}千元`);
             return (r.descFrags || []).filter(f => f.matched
                 && (!/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t)));
