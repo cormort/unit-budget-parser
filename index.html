@@ -41,12 +41,16 @@
         .up-legend .lg-fact { background: #fff; }
         .up-legend .lg-inf { background: #fff3cd; }
         .up-legend .lg-amb { background: #ffd8b5; }
+        .up-legend .lg-amt { background: #fff; color: #1a7f37; font-weight: 700; text-decoration: underline; text-decoration-color: #1a7f37; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+        .up-legend .lg-kw { background: #ffe066; font-weight: 700; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
         #unitTable .up-clause { font-weight: 600; margin-bottom: 3px; }  /* 整段一句時抽出的本科目子句 */
         #unitTable .up-orphan td { background: #fff3cd; }  /* 未歸戶句：獨立列，插在敘述順序的前後科目之間 */
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
-        #unitTable .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }
+        #unitTable .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }   /* 符合搜尋關鍵字 */
+        /* 說明中的金額＝本科目金額（檢誤用，非搜尋結果）→ 綠色底線，與關鍵字黃底區隔 */
+        #unitTable .up-amt-hit { color: #1a7f37; font-weight: 700; text-decoration: underline; text-decoration-color: #1a7f37; text-decoration-thickness: 2px; text-underline-offset: 2px; }
         #unitTable .up-list { margin: 0; padding-left: 1.15em; }
         #unitTable .up-list > li { margin: 2px 0; }
         #unitTable .up-residue > summary { cursor: pointer; color: #856404; font-weight: 600; margin-top: 4px; }
@@ -71,7 +75,7 @@
             <strong>⚠ 本工具僅供輔助核對，不能取代人工審閱——一切數據以政府公佈的預算書 PDF 原文為準。</strong>
             <ul>
                 <li><strong>可信賴的部分</strong>：金額與科目結構直接取自 PDF 左側表格，並經上下合計驗算（二級→一級→分支→工作計畫，不符會標紅）。</li>
-                <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong></li>
+                <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong>（以上指整格底色；說明<em>內文</em>另有兩種標記：<span style="color:#1a7f37;font-weight:700;text-decoration:underline 2px #1a7f37;">綠色底線＝該金額與本科目金額相同</span>、<span style="background:#ffe066;">黃底＝符合搜尋關鍵字</span>）</li>
                 <li><strong>已知限制</strong>：部分機關（如教育部）的說明按單位／業務撰寫而非按科目，多數句子無法對應到科目，屬資料本身的限制而非解析錯誤。</li>
             </ul>
         </div>
@@ -809,7 +813,7 @@
             const F = _unitFilter;
             return (!F.plan || r.planCode === F.plan) && (!F.branch || r.branchName === F.branch)
                 && (!F.l1 || r.l1Code === F.l1) && (!F.l2 || r.l2Code === F.l2)
-                && (!F.q || _unitDesc(r).includes(F.q))
+                && (!F.q || _unitDesc(r).toLowerCase().includes(F.q.toLowerCase()))
                 && (!F.method || _matchMethod(r) === F.method);
         }
 
@@ -848,7 +852,7 @@
             const methodOpts = mOrder.filter(k => mCount[k]).map(k => ({ v: k, t: `${k}（${mCount[k]}）` }));
             const F = _unitFilter;
             const selHTML = (k, label, opts, cur) => `<label style="margin-right:14px;white-space:nowrap;">${label}：<select onchange="_onUnitFilter('${k}',this.value)" style="padding:6px;border:1px solid #ccc;border-radius:4px;max-width:260px;"><option value="">全部</option>${opts.map(o => `<option value="${escapeHtml(o.v)}"${o.v === cur ? ' selected' : ''}>${escapeHtml(o.t)}</option>`).join('')}</select></label>`;
-            const searchHTML = `<label style="margin-right:14px;white-space:nowrap;">編列說明搜尋：<input type="text" value="${escapeHtml(F.q)}" placeholder="輸入關鍵字後按 Enter" oninput="_unitFilter.q=this.value" onchange="_renderUnitPlan(_unitRows)" style="padding:6px;border:1px solid #ccc;border-radius:4px;width:220px;"></label>`;
+            const searchHTML = `<label style="margin-right:14px;white-space:nowrap;">編列說明搜尋：<input type="text" value="${escapeHtml(F.q)}" placeholder="輸入關鍵字後按 Enter" oninput="_unitFilter.q=this.value.trim()" onchange="_renderUnitPlan(_unitRows)" style="padding:6px;border:1px solid #ccc;border-radius:4px;width:220px;"></label>`;
             const clearHTML = (F.plan || F.branch || F.l1 || F.l2 || F.q || F.method) ? `<button class="btn-secondary" onclick="_unitFilter.q='';_unitFilter.method='';_onUnitFilter('plan','');" title="清除全部條件" style="padding:6px 12px;">清除</button>` : '';
             const filterHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px 0;align-items:center;margin:10px 0;">${selHTML('plan', '工作計畫', planOpts, F.plan)}${selHTML('branch', '分支計畫', brOpts, F.branch)}${selHTML('l1', '一級科目', l1Opts, F.l1)}${selHTML('l2', '二級科目', l2Opts, F.l2)}${methodOpts.length ? selHTML('method', '歸戶方式', methodOpts, F.method) : ''}${searchHTML}${clearHTML}</div>`;
 
@@ -862,11 +866,24 @@
             const cls = { '分支計畫': 'up-branch', '用途別一級': 'up-l1', '用途別二級': 'up-l2', '未歸戶說明': 'up-orphan' };
             // 分支列只留無金額的總述句；未歸戶句已各自成列（見 _insertOrphans）。
             // 把本列自己的金額在說明中高亮：橘底(區間多科目候選)常是因為該金額在段落裡出現多次，
-            // 標出來可一眼看到候選位置。先轉義再注入，邊界避免「30千元」命中「130千元」。
-            const hiAmt = (h, amt) => {
-                if (!amt) return h;
-                const re = new RegExp('(?<![\\d,])' + _unitFmt(amt) + '千元', 'g');
-                return h.replace(re, m => `<span class="up-hit">${m}</span>`);
+            // 標出來可一眼看到候選位置。邊界避免「30千元」命中「130千元」。
+            // 兩種標記一次掃完（不可分兩次 replace，否則後者會標到前者插入的標籤裡）：
+            //   綠色底線＝說明中的金額與本科目金額相同（檢誤）；黃底＝符合搜尋關鍵字。重疊時金額優先。
+            const hi = (raw, amt) => {
+                const s = String(raw || ''), marks = [];
+                if (amt) for (const m of s.matchAll(new RegExp('(?<![\\d,])' + _unitFmt(amt) + '千元', 'g')))
+                    marks.push([m.index, m.index + m[0].length, 'up-amt-hit', '此金額與本科目金額相同']);
+                if (F.q) for (const m of s.matchAll(new RegExp(_reEsc(F.q), 'gi')))
+                    marks.push([m.index, m.index + m[0].length, 'up-hit', '符合搜尋關鍵字']);
+                if (!marks.length) return escapeHtml(s);
+                marks.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+                let out = '', pos = 0;
+                for (const [a, b, cls, tip] of marks) {
+                    if (a < pos) continue;
+                    out += escapeHtml(s.slice(pos, a)) + `<span class="${cls}" title="${tip}">${escapeHtml(s.slice(a, b))}</span>`;
+                    pos = b;
+                }
+                return out + escapeHtml(s.slice(pos));
             };
             // 顯示用斷行：句號之後，以及每個編號子項 <n>／(n) 之前都換行，
             // 避免「(3)通訊費編列4,260千元，內容如下：<1>…1,855千元。」擠成一行。
@@ -874,7 +891,7 @@
                 .split(/(?<=。)|(?=[<＜]\d+[>＞])|(?=[（(]\d+[)）])/)
                 .map(x => x.trim()).filter(Boolean);
             const bullets = (arr, cls, amt) => `<ul class="up-list">` +
-                arr.flatMap(f => dispSents(f.t)).map(t => `<li${cls ? ` class="${cls}"` : ''}>${hiAmt(escapeHtml(t), amt)}</li>`).join('') + `</ul>`;
+                arr.flatMap(f => dispSents(f.t)).map(t => `<li${cls ? ` class="${cls}"` : ''}>${hi(t, amt)}</li>`).join('') + `</ul>`;
             const branchDesc = r => {
                 // 未歸戶句已插為獨立列（見 _insertOrphans），此處只留無金額的總述句
                 const ov = _branchOverview(r);
@@ -886,13 +903,14 @@
                 const acctName = r.orphan ? '未歸戶' : (r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name));
                 const descSent = dispSents(r.desc);
                 const descBody = descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount)
-                    : hiAmt(escapeHtml(r.desc || ''), r.amount);
+                    : hi(r.desc, r.amount);
                 // 整段一句時，子句擺前面加粗、整段收進可展開——資訊不減，但一眼看得到本科目那一節
                 const clause = _descClause(r);
                 const desc = r.level === '分支計畫' ? branchDesc(r)
                     : clause
-                        ? `<div class="up-clause">${hiAmt(escapeHtml(clause), r.amount)}</div>`
-                        + `<details class="up-residue"><summary>整段說明（${r.desc.length} 字）</summary>${descBody}</details>`
+                        ? `<div class="up-clause">${hi(clause, r.amount)}</div>`
+                        // 關鍵字可能只落在收合的整段裡，命中就先展開，否則搜尋等於沒標到
+                        + `<details class="up-residue"${F.q ? ' open' : ''}><summary>整段說明（${r.desc.length} 字）</summary>${descBody}</details>`
                         : descBody;
                 const descCls = 'up-desc' + (r.ambiguous ? ' narr-amb' : ((r.inferred || r.headcount) ? ' narr-un' : ''));
                 const descTitle = r.ambiguous ? ' title="不確定：此金額無法對應到句子，區間內有多個科目，以下為候選文字（重複顯示），請人工確認"'
@@ -919,7 +937,9 @@
                 + `<span class="lg lg-inf">黃＝順序推論・人數歸戶</span>`
                 + `<span class="lg lg-amb">橘＝區間多科目候選，待確認</span>`
                 + `<span class="lg lg-inf">黃底整列＝未歸戶句，插在敘述順序的前後科目之間，金額欄留空待人工歸戶</span>`
-                + `　分支列＝無金額總述句。</div>`;
+                + `　分支列＝無金額總述句。<br>說明內文字標記：`
+                + `<span class="lg lg-amt">綠色底線＝此金額與本科目金額相同（檢誤）</span>`
+                + `<span class="lg lg-kw">黃底＝符合搜尋關鍵字</span></div>`;
             document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine + legend +
                 `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
             // 合計列固定在表頭下方：sticky top 必須等於「實際」表頭高度。
