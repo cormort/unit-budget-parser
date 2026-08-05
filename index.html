@@ -41,16 +41,15 @@
         .up-legend .lg-fact { background: #fff; }
         .up-legend .lg-inf { background: #fff3cd; }
         .up-legend .lg-amb { background: #ffd8b5; }
-        .up-legend .lg-amt { background: #fff; color: #1a7f37; font-weight: 700; text-decoration: underline; text-decoration-color: #1a7f37; text-decoration-thickness: 2px; text-underline-offset: 2px; }
-        .up-legend .lg-kw { background: #ffe066; font-weight: 700; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
         #unitTable .up-clause { font-weight: 600; margin-bottom: 3px; }  /* 整段一句時抽出的本科目子句 */
         #unitTable .up-orphan td { background: #fff3cd; }  /* 未歸戶句：獨立列，插在敘述順序的前後科目之間 */
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
-        #unitTable .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }   /* 符合搜尋關鍵字 */
-        /* 說明中的金額＝本科目金額（檢誤用，非搜尋結果）→ 綠色底線，與關鍵字黃底區隔 */
-        #unitTable .up-amt-hit { color: #1a7f37; font-weight: 700; text-decoration: underline; text-decoration-color: #1a7f37; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+        /* 說明「內文」的兩種標記。不加 #unitTable 前綴，圖例與免責聲明才能直接沿用同一份定義 */
+        .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }   /* 符合搜尋關鍵字 */
+        /* 金額＝本科目金額（檢誤用，非搜尋結果）→ 綠色底線，與關鍵字黃底區隔 */
+        .up-amt-hit { color: #1a7f37; font-weight: 700; text-decoration: underline; text-decoration-color: #1a7f37; text-decoration-thickness: 2px; text-underline-offset: 2px; }
         #unitTable .up-list { margin: 0; padding-left: 1.15em; }
         #unitTable .up-list > li { margin: 2px 0; }
         #unitTable .up-residue > summary { cursor: pointer; color: #856404; font-weight: 600; margin-top: 4px; }
@@ -75,7 +74,7 @@
             <strong>⚠ 本工具僅供輔助核對，不能取代人工審閱——一切數據以政府公佈的預算書 PDF 原文為準。</strong>
             <ul>
                 <li><strong>可信賴的部分</strong>：金額與科目結構直接取自 PDF 左側表格，並經上下合計驗算（二級→一級→分支→工作計畫，不符會標紅）。</li>
-                <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong>（以上指整格底色；說明<em>內文</em>另有兩種標記：<span style="color:#1a7f37;font-weight:700;text-decoration:underline 2px #1a7f37;">綠色底線＝該金額與本科目金額相同</span>、<span style="background:#ffe066;">黃底＝符合搜尋關鍵字</span>）</li>
+                <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong>（以上指整格底色；說明<em>內文</em>另有兩種標記：<span class="up-amt-hit">綠色底線＝該金額與本科目金額相同</span>、<span class="up-hit">黃底＝符合搜尋關鍵字</span>）</li>
                 <li><strong>已知限制</strong>：部分機關（如教育部）的說明按單位／業務撰寫而非按科目，多數句子無法對應到科目，屬資料本身的限制而非解析錯誤。</li>
             </ul>
         </div>
@@ -868,7 +867,8 @@
             // 把本列自己的金額在說明中高亮：橘底(區間多科目候選)常是因為該金額在段落裡出現多次，
             // 標出來可一眼看到候選位置。邊界避免「30千元」命中「130千元」。
             // 兩種標記一次掃完（不可分兩次 replace，否則後者會標到前者插入的標籤裡）：
-            //   綠色底線＝說明中的金額與本科目金額相同（檢誤）；黃底＝符合搜尋關鍵字。重疊時金額優先。
+            //   綠色底線＝說明中的金額與本科目金額相同（檢誤）；黃底＝符合搜尋關鍵字。
+            //   重疊時取先出現者，同起點取較長者（例：搜「4,260」與金額同起點 → 金額較長勝出）。
             const hi = (raw, amt) => {
                 const s = String(raw || ''), marks = [];
                 if (amt) for (const m of s.matchAll(new RegExp('(?<![\\d,])' + _unitFmt(amt) + '千元', 'g')))
@@ -938,8 +938,8 @@
                 + `<span class="lg lg-amb">橘＝區間多科目候選，待確認</span>`
                 + `<span class="lg lg-inf">黃底整列＝未歸戶句，插在敘述順序的前後科目之間，金額欄留空待人工歸戶</span>`
                 + `　分支列＝無金額總述句。<br>說明內文字標記：`
-                + `<span class="lg lg-amt">綠色底線＝此金額與本科目金額相同（檢誤）</span>`
-                + `<span class="lg lg-kw">黃底＝符合搜尋關鍵字</span></div>`;
+                + `<span class="lg up-amt-hit">綠色底線＝此金額與本科目金額相同（檢誤）</span>`
+                + `<span class="lg up-hit">黃底＝符合搜尋關鍵字</span></div>`;
             document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine + legend +
                 `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
             // 合計列固定在表頭下方：sticky top 必須等於「實際」表頭高度。
