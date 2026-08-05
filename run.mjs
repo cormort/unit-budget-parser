@@ -5,7 +5,9 @@ import { readFile, writeFile } from 'fs/promises';
 import vm from 'node:vm';
 
 function loadTool(html) {
-    const js = html.split('<script>')[1].split('</script>')[0]
+    // 取最長的 inline <script>＝工具本體（頁面另有 GA 等短腳本，不能寫死第 1 個）
+    const js = html.split('<script>').slice(1).map(s => s.split('</script>')[0])
+        .reduce((a, b) => b.length > a.length ? b : a)
         .replace(/pdfjsLib\.GlobalWorkerOptions[^\n]*\n/, '');
     const stub = { files: { length: 0 }, style: {}, value: '', textContent: '', innerHTML: '', options: [], addEventListener() { }, querySelectorAll: () => [] };
     const ctx = {
