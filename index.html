@@ -73,7 +73,7 @@
         <div class="disclaimer">
             <strong>⚠ 本工具僅供輔助核對，不能取代人工審閱——一切數據以政府公佈的預算書 PDF 原文為準。</strong>
             <ul>
-                <li><strong>可信賴的部分</strong>：金額與科目結構直接取自 PDF 左側表格，並經上下合計驗算（二級→一級→分支→工作計畫，不符會標紅）。</li>
+                <li><strong>可信賴的部分</strong>：金額與科目結構直接取自 PDF 左側表格，並經上下合計驗算（二級→一級→分支→工作計畫，不符會標紅）；工作計畫的編號與本年度預算數另以同一本預算書的<strong>歲出機關別預算表</strong>核對，屬外部依據而非自我一致性。</li>
                 <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong>（以上指整格底色；說明<em>內文</em>另有兩種標記：<span class="up-amt-hit">綠色底線＝該金額與本科目金額相同</span>、<span class="up-hit">黃底＝符合搜尋關鍵字</span>）</li>
                 <li><strong>已知限制</strong>：部分機關（如教育部）的說明按單位／業務撰寫而非按科目，多數句子無法對應到科目，屬資料本身的限制而非解析錯誤。</li>
             </ul>
@@ -597,6 +597,7 @@
             mohw: { file: 'examples/mohw-115.pdf', label: '115年度衛生福利部單位預算案' },
         };
         let _unitData = null;   // 供切換機關規則時重新解析（檔案或範例皆適用）
+        let _agencyPlans = null;   // 歲出機關別預算表的 10 碼編號 → {name, budget}；null＝該表未解析到
 
         // 供回歸測試取用：function 宣告會自動成為全域屬性（parseUnitDoc 不需顯式掛上），
         // 但頂層 let 不會，_unitAgency 需以存取器暴露
@@ -618,6 +619,77 @@
                 st.style.display = 'none'; er.textContent = '載入範例失敗：' + e.message; er.style.display = 'block';
                 document.getElementById('extractBtnU').disabled = false;
             }
+        }
+
+        // ===== 歲出機關別預算表：工作計畫的獨立對照來源 =====
+        // 概況表的「上下合計驗算」是自我一致性檢查——工作計畫預算數取自概況表自己的表頭，
+        // 整條驗算鏈的頂端沒有外部依據。同一本預算書的「歲出機關別預算表」以款項目節列出
+        // 相同的 10 碼工作計畫編號與本年度預算數，拿它對照才是真正的外部驗證。
+        const _AGENCY_TITLE = '歲出機關別預算表';
+
+        // 抽出 10 碼編號 → { name, budget }。版面：編號自成一行，下一行是名稱＋各年度金額。
+        async function parseAgencyPlanTable(pdf, onProgress) {
+            const map = new Map();
+            let pages = 0;
+            for (let i = 1; i <= pdf.numPages; i++) {
+                if (onProgress) onProgress(i, pdf.numPages);
+                const tc = await (await pdf.getPage(i)).getTextContent();
+                if (!tc.items.map(t => t.str).join('').replace(/[\s　]/g, '').includes(_AGENCY_TITLE)) continue;
+                pages++;
+                const ws = tc.items.map(t => ({ x: t.transform[4], y: t.transform[5], s: t.str })).filter(w => w.s.trim());
+                const lines = [];
+                for (const w of ws.sort((a, b) => b.y - a.y)) {
+                    const g = lines[lines.length - 1];
+                    if (g && Math.abs(g.y - w.y) <= 3) g.w.push(w); else lines.push({ y: w.y, w: [w] });
+                }
+                lines.forEach(l => l.w.sort((a, b) => a.x - b.x));
+                const flatOf = l => l.w.map(w => w.s).join('').replace(/[\s　]/g, '');
+                // 「本年度預算數」欄位 x（表頭「本年度」出現兩次：預算數欄與比較欄，取靠左者）
+                const hd = lines.flatMap(l => l.w).filter(w => w.s.replace(/[\s　]/g, '').startsWith('本年度'));
+                const xB = hd.length ? Math.min(...hd.map(w => w.x)) : null;
+                const isNum = w => /^-?[\d,]+$/.test(w.s.trim());
+                // 同一 (x,字串) 重複出現＝描邊/粗體造成的重影，去掉才不會變成「行政支出行政支出」
+                const uniq = arr => [...new Map(arr.map(w => [Math.round(w.x) + '|' + w.s, w])).values()];
+                for (let k = 0; k < lines.length; k++) {
+                    if (!/^\d{10}$/.test(flatOf(lines[k]))) continue;
+                    const nx = lines[k + 1];
+                    if (!nx) continue;
+                    const code = flatOf(lines[k]);
+                    const codeX = Math.min(...lines[k].w.map(w => w.x));
+                    // 款項目節的層級序號印在編號欄「左邊」，不排掉會被當成金額（實測衛福部 6571570100 抓到「4」）
+                    const nums = nx.w.filter(w => isNum(w) && w.x >= codeX - 5);
+                    const nameCol = w => !isNum(w) && w.x > codeX - 20 && w.x < (xB ?? 170) - 10;
+                    let name = uniq(nx.w.filter(nameCol)).map(w => w.s).join('').replace(/[\s　]/g, '');
+                    // 名稱欄寬不夠時折到後續行（「一般性醫療保健」→「補助－衛生福利」→「部」）
+                    for (let j = k + 2; j < lines.length; j++) {
+                        if (/^\d{10}$/.test(flatOf(lines[j])) || lines[j].w.some(isNum)) break;
+                        const cont = uniq(lines[j].w.filter(nameCol)).map(w => w.s).join('').replace(/[\s　]/g, '');
+                        if (!cont) break;
+                        name += cont;
+                    }
+                    const b = (xB != null && nums.find(w => Math.abs(w.x - xB) < 40)) || nums[0];
+                    if (!map.has(code)) map.set(code, { name, budget: b ? b.s.trim() : '' });
+                }
+            }
+            return { map, pages };
+        }
+
+        // 名稱比對必須寬容：機關別表的名稱欄常被欄寬截斷（「中央總預算核編」vs 概況表的
+        // 「中央總預算核編及執行」），且 pdf.js 會把說明欄與名稱欄黏成同一個 item
+        // （"…千元，包學生事務與特殊"），x 座標不足以切乾淨。故正規化後任一方包含另一方即視為相符。
+        // 五份範例實測：71 個工作計畫全數代碼相符、金額相符，名稱衝突 0、抽不到名稱 3
+        // （這 3 筆略過名稱比對，不誤報成不符）。
+        //
+        // 這條規則抓得到／抓不到什麼，已用注入錯誤實測（勿誤以為它能全抓）：
+        //   抓得到：截斷點之前的字元差異（「會計及X算業務」）、名稱整個換掉
+        //   抓不到：概況表名稱在頭或尾「多出」字（「會計及決算業務XYZ」）
+        //           ——因為那與「機關別表被截斷」在字串上無法區分，資料本身的限制。
+        // 編號與本年度預算數則是嚴格比對，1 千元的差也會報出來。
+        // 用 function 宣告而非 const：const 不會掛上 vm 的 global，回歸測試就取不到
+        function _planNameKey(s) { return (s || '').replace(/[\s　,，、。．.\-－–—‧･·()（）]/g, ''); }
+        function _planNameMatch(a, b) {
+            const x = _planNameKey(a), y = _planNameKey(b);
+            return x.length >= 3 && y.length >= 3 && (x.includes(y) || y.includes(x));
         }
 
         // 解析核心：與 DOM 脫鉤，UI 與回歸測試共用同一份程式碼
@@ -740,6 +812,9 @@
                 const pdf = await task.promise;
                 const out = await parseUnitDoc(pdf, (i, n) => show(el.st, `正在處理第 ${i} / ${n} 頁...`));
                 _unitRows = out;
+                // 同一本預算書的歲出機關別預算表＝工作計畫編號／名稱／本年度預算數的外部對照
+                const ag = await parseAgencyPlanTable(pdf, (i, n) => show(el.st, `核對歲出機關別預算表 ${i} / ${n} 頁...`));
+                _agencyPlans = ag.pages ? ag.map : null;
                 // 重新解析＝換了資料或規則，所有篩選條件（含說明搜尋）都要清掉，
                 // 否則舊條件會靜默過濾新結果
                 _unitFilter.plan = _unitFilter.branch = _unitFilter.l1 = _unitFilter.l2 = '';
@@ -838,6 +913,35 @@
             const reconLine = badCount === 0
                 ? `<div style="margin:8px 0;color:#155724;">✅ 上下合計驗算全數通過（二級→一級→分支→工作計畫）</div>`
                 : `<div style="margin:8px 0;color:#dc3545;font-weight:600;">⚠ 上下合計驗算有 ${badCount} 處不符，已於該列金額標紅</div>`;
+
+            // 工作計畫核對：拿歲出機關別預算表當外部依據。上面那條驗算只證明概況表「自己前後一致」，
+            // 頂端的工作計畫預算數仍取自概況表自身；這條才驗得到編號、名稱與本年度預算數對不對。
+            const agencyLine = (() => {
+                if (!_agencyPlans) return `<div style="margin:8px 0;color:#8a6d3b;">ℹ️ 這份 PDF 沒有「歲出機關別預算表」，略過工作計畫核對（上方驗算僅為概況表的自我一致性檢查）</div>`;
+                const seen = new Map();
+                for (const r of rows) if (!seen.has(r.planCode)) seen.set(r.planCode, { name: r.planName, budget: r.planBudget });
+                const missing = [], amtBad = [], nameBad = [];
+                let noName = 0;
+                for (const [code, p] of seen) {
+                    const a = _agencyPlans.get(code);
+                    if (!a) { missing.push(code); continue; }
+                    if (a.budget !== p.budget) amtBad.push({ code, p, a });
+                    if (!_planNameKey(a.name)) noName++;
+                    else if (!_planNameMatch(a.name, p.name)) nameBad.push({ code, p, a });
+                }
+                const total = seen.size, bad = missing.length + amtBad.length + nameBad.length;
+                const detail = [
+                    ...missing.map(c => `編號 ${c}「${escapeHtml(seen.get(c).name)}」在機關別預算表找不到`),
+                    ...amtBad.map(d => `${d.code}「${escapeHtml(d.p.name)}」本年度預算數：概況表 ${escapeHtml(d.p.budget)}、機關別表 ${escapeHtml(d.a.budget || '(未取得)')}`),
+                    ...nameBad.map(d => `${d.code} 名稱不一致：概況表「${escapeHtml(d.p.name)}」、機關別表「${escapeHtml(d.a.name)}」`),
+                ];
+                const note = noName ? `（另有 ${noName} 個計畫在機關別表的名稱欄抽不到文字，已略過名稱比對）` : '';
+                return bad === 0
+                    ? `<div style="margin:8px 0;color:#155724;">✅ 工作計畫核對通過：${total} 個計畫的<strong>編號與本年度預算數</strong>與歲出機關別預算表完全相符${note}`
+                    + `<span style="color:#6c757d;font-size:12px;"> — 名稱為寬容比對（機關別表欄寬會截斷名稱，故只驗兩者互相包含；概況表名稱在頭尾多出字時驗不出來）</span></div>`
+                    : `<div style="margin:8px 0;color:#dc3545;"><strong>⚠ 工作計畫核對有 ${bad} 處不符</strong>（共 ${total} 個計畫）${note}`
+                    + `<ul style="margin:4px 0 0 1.2em;">${detail.map(d => `<li>${d}</li>`).join('')}</ul></div>`;
+            })();
 
             // 下拉選項
             const distinct = (pick, vf, tf) => { const m = new Map(); for (const r of rows) if (pick(r) && !m.has(vf(r))) m.set(vf(r), tf(r)); return [...m].map(([v, t]) => ({ v, t })); };
@@ -940,7 +1044,7 @@
                 + `　分支列＝無金額總述句。<br>說明內文字標記：`
                 + `<span class="lg up-amt-hit">綠色底線＝此金額與本科目金額相同（檢誤）</span>`
                 + `<span class="lg up-hit">黃底＝符合搜尋關鍵字</span></div>`;
-            document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine + legend +
+            document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine + agencyLine + legend +
                 `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
             // 合計列固定在表頭下方：sticky top 必須等於「實際」表頭高度。
             // 原本寫死 34px，表頭換行變高時就會被壓住（畫面上與欄名重疊）。

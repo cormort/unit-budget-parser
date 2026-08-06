@@ -59,6 +59,28 @@ function reconcile(rows) {
     return bad;
 }
 
+// 工作計畫核對：概況表的每個工作計畫，都要能在歲出機關別預算表找到相同的編號、
+// 相容的名稱與相同的本年度預算數。四層驗算只證明概況表「自己前後一致」（頂端的工作計畫
+// 預算數就取自概況表自身），這條才是外部依據。
+function crossCheckAgency(ctx, rows, agency) {
+    if (!agency.pages) return ['找不到「歲出機關別預算表」頁面'];
+    const seen = new Map();
+    for (const r of rows) if (!seen.has(r.planCode)) seen.set(r.planCode, { name: r.planName, budget: r.planBudget });
+    const bad = [];
+    let noName = 0;
+    for (const [code, p] of seen) {
+        const a = agency.map.get(code);
+        if (!a) { bad.push(`${code}「${p.name}」不在機關別預算表`); continue; }
+        if (a.budget !== p.budget) bad.push(`${code}「${p.name}」預算數 ${p.budget} ≠ 機關別表 ${a.budget || '(未取得)'}`);
+        // 名稱欄常被欄寬截斷、或被 pdf.js 與說明欄黏成同一 item，抽不到就略過，不誤報成不符
+        if (!ctx._planNameKey(a.name)) noName++;
+        else if (!ctx._planNameMatch(a.name, p.name)) bad.push(`${code} 名稱「${p.name}」≠ 機關別表「${a.name}」`);
+    }
+    // 抽不到名稱的比例若暴增，代表版面偵測退化了，要擋下來
+    if (noName > Math.max(3, seen.size * 0.2)) bad.push(`機關別表有 ${noName}/${seen.size} 個計畫抽不到名稱，版面偵測可能退化`);
+    return bad;
+}
+
 const html = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 let failed = 0;
 
@@ -68,6 +90,7 @@ for (const [file, want] of Object.entries(EXPECT)) {
     const task = getDocument({ data });
     const pdf = await task.promise;
     const rows = await ctx.parseUnitDoc(pdf);
+    const agency = await ctx.parseAgencyPlanTable(pdf);
     await task.destroy();
 
     const l2 = rows.filter(r => r.level === '用途別二級');
@@ -84,13 +107,14 @@ for (const [file, want] of Object.entries(EXPECT)) {
     const errs = Object.entries(want).filter(([k, v]) => got[k] !== v)
         .map(([k, v]) => `${k}: 期望 ${v}，實際 ${got[k]}`);
     errs.push(...reconcile(rows).map(m => '四層驗算不符 → ' + m));
+    errs.push(...crossCheckAgency(ctx, rows, agency).map(m => '工作計畫核對不符 → ' + m));
 
     if (errs.length) {
         failed++;
         console.error(`✗ ${file}`);
         errs.forEach(e => console.error('    ' + e));
     } else {
-        console.log(`✓ ${file}  ${got.agency}｜${got.plans} 計畫／${got.rows} 列｜二級 ${got.l2}（有說明 ${got.withDesc}）｜孤兒句 ${got.orphans}｜四層驗算 0 不符`);
+        console.log(`✓ ${file}  ${got.agency}｜${got.plans} 計畫／${got.rows} 列｜二級 ${got.l2}（有說明 ${got.withDesc}）｜孤兒句 ${got.orphans}｜四層驗算 0 不符｜工作計畫核對 ${got.plans}/${got.plans}（機關別表 ${agency.pages} 頁）`);
     }
 }
 
