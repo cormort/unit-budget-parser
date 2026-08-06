@@ -68,9 +68,10 @@ function crossCheckAgency(ctx, rows, agency) {
     for (const r of rows) if (!seen.has(r.planCode)) seen.set(r.planCode, { name: r.planName, budget: r.planBudget });
     const bad = [];
     let noName = 0;
+    const unmatched = [];
     for (const [code, p] of seen) {
         const a = agency.map.get(code);
-        if (!a) { bad.push(`${code}「${p.name}」不在機關別預算表`); continue; }
+        if (!a) { unmatched.push(code); continue; }   // 對不到不算錯，但要計數（見下）
         if (a.budget !== p.budget) bad.push(`${code}「${p.name}」預算數 ${p.budget} ≠ 機關別表 ${a.budget || '(未取得)'}`);
         // 名稱欄常被欄寬截斷、或被 pdf.js 與說明欄黏成同一 item，抽不到就略過，不誤報成不符
         const ni = ctx._planNameIssue(a.name, p.name);
@@ -80,6 +81,8 @@ function crossCheckAgency(ctx, rows, agency) {
     }
     // 抽不到名稱的比例若暴增，代表版面偵測退化了，要擋下來
     if (noName > Math.max(3, seen.size * 0.2)) bad.push(`機關別表有 ${noName}/${seen.size} 個計畫抽不到名稱，版面偵測可能退化`);
+    // 中央五份實測全部對得到；一旦有計畫對不到，代表版面偵測退化或該表沒讀全，要擋下來
+    if (unmatched.length) bad.push(`${unmatched.length} 個工作計畫不在機關別預算表（${unmatched.join('、')}），金額無法外部核對`);
     return bad;
 }
 
