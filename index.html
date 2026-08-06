@@ -655,12 +655,45 @@
                 // 「本年度預算數」欄位 x（表頭「本年度」出現兩次：預算數欄與比較欄，取靠左者）
                 const hd = lines.flatMap(l => l.w).filter(w => w.s.replace(/[\s　]/g, '').startsWith('本年度'));
                 const xB = hd.length ? Math.min(...hd.map(w => w.x)) : null;
-                const numParts = w => w.s.trim().split(/\s+/).filter(t => /^-?[\d,]+$/.test(t));
-                const isNum = w => numParts(w).length > 0 && !/[^-\d,\s]/.test(w.s.trim());
-                const codeOf = w => {
-                    const t = w.s.trim().split(/\s+/).pop().replace(/[\s　]/g, '');
-                    return /^(?:\d{10,11}|\d{4}[a-z]\d{6})$/i.test(t) ? t : null;
+                // 只取「開頭連續」的數字：金額後面常黏著說明欄文字，被寫進同一個 item
+                //（實測新北 8970a040201「2,700,000 2,440,000 2,418,805 260,000 1.1.本年度預算數較…」），
+                // 原本要求整段純數字，這種列的金額就整筆抽不到。
+                const numParts = w => {
+                    const out = [];
+                    for (const t of w.s.trim().split(/\s+/)) {
+                        if (/^-?[\d,]+$/.test(t)) out.push(t); else break;
+                    }
+                    return out;
                 };
+                const isNum = w => numParts(w).length > 0;
+                const _isCode = t => /^(?:\d{10,11}|\d{4}[a-z]\d{6})$/i.test(t);
+                const _WELL_FORMED_AMT = /^-?\d{1,3}(?:,\d{3})*$/;
+                const _toks = w => w.s.trim().split(/\s+/).map(t => t.replace(/[\s　]/g, '')).filter(Boolean);
+                // 同頁乾淨可辨的代碼有多長，就用那個長度去拆「代碼與金額黏在一起」的 token。
+                // 不能寫死（中央 10 碼、地方 11 碼），也不能猜——「6311110020126,812,015」切
+                // 10 碼或 11 碼，剩下的都是合法千分位數字，只有同頁其他列能定案。
+                const _lens = {};
+                for (const l of lines) for (const w of l.w) for (const t of _toks(w)) if (_isCode(t)) _lens[t.length] = (_lens[t.length] || 0) + 1;
+                const codeLen = +(Object.keys(_lens).sort((a, b) => _lens[b] - _lens[a])[0] || 0);
+                // 代碼不一定是 item 的最後一段：整列有時被塞進同一個 item（地方版實測）。
+                // 掃過每個 token；找到代碼後，緊黏其後或緊接的下一段就是本年度預算數。
+                const codeInfo = w => {
+                    const toks = _toks(w);
+                    for (let i = 0; i < toks.length; i++) {
+                        const t = toks[i];
+                        let code = null, amt = '';
+                        if (_isCode(t)) code = t;
+                        else if (codeLen && t.length > codeLen) {
+                            const head = t.slice(0, codeLen), rest = t.slice(codeLen);
+                            if (_isCode(head) && _WELL_FORMED_AMT.test(rest)) { code = head; amt = rest; }
+                        }
+                        if (!code) continue;
+                        if (!amt && toks[i + 1] && _WELL_FORMED_AMT.test(toks[i + 1])) amt = toks[i + 1];
+                        return { code, amt };
+                    }
+                    return null;
+                };
+                const codeOf = w => { const i = codeInfo(w); return i ? i.code : null; };
                 // 同一 (x,字串) 重複出現＝描邊/粗體造成的重影，去掉才不會變成「行政支出行政支出」
                 const uniq = arr => [...new Map(arr.map(w => [Math.round(w.x) + '|' + w.s, w])).values()];
                 for (let k = 0; k < lines.length; k++) {
@@ -675,7 +708,9 @@
                     const n = l.w.filter(w => isNum(w) && !codeOf(w) && w.x >= codeX - 5);
                         return (xB != null && n.find(w => Math.abs(w.x - xB) < 45)) || n[0];
                     };
-                    let b = amtOf(lines[k]);
+                    // 代碼那一段自帶金額時優先採用：整列擠在同一個 item 時 x 座標切不出欄位
+                    const inline = codeInfo(cw).amt;
+                    let b = (inline ? { s: inline, x: codeX } : null) || amtOf(lines[k]);
                     let name = uniq(lines[k].w.filter(nameCol)).map(w => w.s).join('').replace(/[\s　]/g, '');
                     let start = k + 1;
                     if (!b && lines[k + 1]) b = amtOf(lines[k + 1]);
