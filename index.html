@@ -659,7 +659,7 @@
                 const isNum = w => numParts(w).length > 0 && !/[^-\d,\s]/.test(w.s.trim());
                 const codeOf = w => {
                     const t = w.s.trim().split(/\s+/).pop().replace(/[\s　]/g, '');
-                    return /^\d{10,11}$/.test(t) ? t : null;
+                    return /^(?:\d{10,11}|\d{4}[a-z]\d{6})$/i.test(t) ? t : null;
                 };
                 // 同一 (x,字串) 重複出現＝描邊/粗體造成的重影，去掉才不會變成「行政支出行政支出」
                 const uniq = arr => [...new Map(arr.map(w => [Math.round(w.x) + '|' + w.s, w])).values()];
@@ -953,14 +953,16 @@
                 if (!_agencyPlans) return `<div style="margin:8px 0;color:#8a6d3b;">ℹ️ 這份 PDF 沒有「歲出機關別預算表」，略過工作計畫核對（上方驗算僅為概況表的自我一致性檢查）</div>`;
                 const seen = new Map();
                 for (const r of rows) if (!seen.has(r.planCode)) seen.set(r.planCode, { name: r.planName, budget: r.planBudget });
-                const missing = [], amtBad = [], nameBad = [], nameUnverified = [];
+                const missing = [], amtBad = [], nameBad = [], nameUnverified = [], budgetUnverified = [];
                 let noName = 0;
                 for (const [code, p] of seen) {
                     const a = _agencyPlans.get(code);
                     // 對不到不等於錯（地方版實測有整批屬另一款別的計畫），但它們的金額就是
                     // 沒有第二個來源可驗，必須單獨講明，不能吞進「核對通過」裡
                     if (!a) { missing.push({ code, ...p }); continue; }
-                    if (a.budget !== p.budget) amtBad.push({ code, p, a });
+                    // 抽不到金額≠兩表有差異，是本工具沒讀到；報成「不符」等於誣賴預算書
+                    if (!a.budget) budgetUnverified.push({ code, name: p.name });
+                    else if (a.budget !== p.budget) amtBad.push({ code, p, a });
                     const ni = _planNameIssue(a.name, p.name);
                     if (ni === 'noname') { noName++; nameUnverified.push({ code, name: p.name }); }
                     else if (ni) nameBad.push({ code, p, a, why: ni });
@@ -968,7 +970,7 @@
                 const total = seen.size, checked = total - missing.length;
                 const bad = amtBad.length + nameBad.length;
                 const detail = [
-                    ...amtBad.map(d => `${d.code}「${escapeHtml(d.p.name)}」本年度預算數：概況表 ${escapeHtml(d.p.budget)}、機關別表 ${escapeHtml(d.a.budget || '(未取得)')}`),
+                    ...amtBad.map(d => `${d.code}「${escapeHtml(d.p.name)}」本年度預算數：概況表 ${escapeHtml(d.p.budget)}、機關別表 ${escapeHtml(d.a.budget)}`),
                     ...nameBad.map(d => `${d.code} ${d.why === 'short' ? '概況表名稱不完整（疑似解析漏字）' : '名稱對不上'}：概況表「${escapeHtml(d.p.name)}」、機關別表「${escapeHtml(d.a.name)}」`),
                 ];
                 let out = bad === 0
@@ -980,6 +982,10 @@
                     out += `<div style="margin:8px 0;padding:8px 12px;border-left:4px solid #fd7e14;background:#fff8f0;color:#8a4b00;">`
                         + `⚠ 有 ${missing.length} 個工作計畫在歲出機關別預算表中找不到對應編號，<strong>這些計畫的本年度預算數未經外部核對</strong>，請自行回對 PDF：`
                         + `<ul style="margin:4px 0 0 1.2em;">${missing.map(m => `<li>${m.code}「${escapeHtml(m.name)}」：${escapeHtml(m.budget)} 千元</li>`).join('')}</ul></div>`;
+                }
+                if (budgetUnverified.length) {
+                    out += `<div style="margin:8px 0;color:#8a6d3b;">⚠ 有 ${budgetUnverified.length} 個工作計畫在機關別預算表的本年度預算數欄抽不到數字，<strong>金額未經核對</strong>：`
+                        + escapeHtml(budgetUnverified.map(x => `${x.code} ${x.name}`).join('、')) + `</div>`;
                 }
                 if (nameUnverified.length) {
                     out += `<div style="margin:8px 0;color:#8a6d3b;">⚠ 有 ${nameUnverified.length} 個工作計畫在機關別預算表的名稱欄抽不到文字，<strong>名稱未經核對</strong>（金額仍有比對）：`
