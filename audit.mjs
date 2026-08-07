@@ -26,6 +26,11 @@ const WARN = {
     orphanRate: 0.40,        // 未歸戶句 / 總列數
     nameUnextractedRate: 0.20,  // 機關別表抽不到名稱的計畫比例（實測最差 2/12 = 17%）
     descCoverage: 0.05,      // 二級科目有說明的比例低於此 → 可能整段說明沒讀到
+    // 比例類指標的最小樣本數。小機關只有 3 個工作計畫時，1 筆抽不到就是 33%，
+    // 必然超標卻毫無意義——實測數位發展部資安署／產業署（各 3 個計畫）都因此誤報。
+    // 樣本不足時改看絕對筆數。
+    minSampleForRate: 8,
+    nameUnextractedAbs: 2,
 };
 
 function loadTool(html) {
@@ -171,7 +176,10 @@ async function auditOne(html, file, toolVersion) {
             if (cc.unmatched.length) rec.warnings.push({ check: 'crossCheckUnmatched', count: cc.unmatched.length, sample: cc.unmatched.slice(0, 8), detail: '這些計畫在機關別預算表找不到對應編號，金額未經外部核對' });
             if (cc.amountUnextracted) rec.warnings.push({ check: 'agencyAmountUnextracted', count: cc.amountUnextracted });
             const nr = cc.total ? cc.nameUnextracted / cc.total : 0;
-            if (nr > WARN.nameUnextractedRate) rec.warnings.push({ check: 'agencyNameUnextracted', count: cc.nameUnextracted, rate: +nr.toFixed(3), threshold: WARN.nameUnextractedRate });
+            const nameBad = cc.total >= WARN.minSampleForRate
+                ? nr > WARN.nameUnextractedRate
+                : cc.nameUnextracted > WARN.nameUnextractedAbs;
+            if (nameBad) rec.warnings.push({ check: 'agencyNameUnextracted', count: cc.nameUnextracted, rate: +nr.toFixed(3), basis: cc.total >= WARN.minSampleForRate ? 'rate' : 'abs' });
         }
 
         const orphanRate = rec.counts.orphans / rec.counts.rows;
