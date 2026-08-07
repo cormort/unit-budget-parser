@@ -623,8 +623,17 @@
             // ③ 比對分支總額時做邊界防護：總額 50 不可命中「150千元」。
             const _brAmt = new RegExp(`(^|[^\\d,])${_unitFmt(br.row.amount).replace(/,/g, '[,，]?')}千元`);
             const _brSelf = f => _BRANCH_SELF.test(f) || _brAmt.test(f);
+            // (n) 子句的歸屬跟著父句走：父句若屬分支層（金額＝分支總額），子句也屬分支層。
+            // 否則同一組子項會被拆兩邊——(1) 因與父句黏在同一切片而收在分支列，(2) 卻另立未歸戶列。
+            const _parentBrSelf = idx => {
+                let j = idx - 1;
+                while (j >= 0 && /^[（(]\d+[)）]/.test(frags[j])) j--;
+                return j >= 0 && _brSelf(frags[j]);
+            };
             br.row.descFrags = frags.map((f, idx) => ({
-                t: f, matched: claimed.has(idx) || !/千元/.test(f) || _brSelf(f),
+                t: f, matched: claimed.has(idx) || !/千元/.test(f) || _brSelf(f)
+                    || (/^[（(]\d+[)）]/.test(f) && _parentBrSelf(idx)),
+                brSub: /^[（(]\d+[)）]/.test(f) && !claimed.has(idx) && _parentBrSelf(idx),
             }));
         }
 
@@ -861,7 +870,7 @@
             const bump = t => cnt.set(t, (cnt.get(t) || 0) + 1);
             // 分支列實際顯示的總述句也算一次（總述句常同時出現在分支列與其下唯一的一級科目）
             for (const f of br.descFrags || [])
-                if (f.matched && (!/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t))) bump(f.t);
+                if (f.matched && (f.brSub || !/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t))) bump(f.t);
             for (const g of group) if (g.desc) bump(g.desc);
             for (const g of group) if (g.desc && cnt.get(g.desc) > 1) g.descShared = true;
         }
@@ -969,8 +978,10 @@
         const _BRANCH_SELF = /本分支計畫|本計畫係/;
         const _branchOverview = r => {
             const amtRe = new RegExp(`(^|[^\\d,])${_unitFmt(r.amount).replace(/,/g, '[,，]?')}千元`);
+            // f.brSub＝父句屬分支層的 (n) 子句。這裡必須一起顯示：只在 descFrags 標 matched
+            // 而不放行顯示，該句就不會另立未歸戶列、也不會出現在分支列，整段文字靜默消失。
             return (r.descFrags || []).filter(f => f.matched
-                && (!/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t)));
+                && (f.brSub || !/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t)));
         };
         // 分支列的說明＝總述句。未歸戶句已各自成列，不再串進分支列，否則匯出會重複一份。
         const _unitDesc = r => r.level === '分支計畫'
@@ -1125,7 +1136,7 @@
             const branchDesc = r => {
                 // 未歸戶句已插為獨立列（見 _insertOrphans），此處只留無金額的總述句
                 const ov = _branchOverview(r);
-                return ov.length ? bullets(ov, '') : '';
+                return ov.length ? bullets(ov, '', r.amount) : '';
             };
             let body = '';
             for (const r of view) {
