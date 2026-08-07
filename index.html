@@ -95,7 +95,6 @@
                         <option value="motc">交通部</option>
                         <option value="mohw">衛生福利部</option>
                     </select></label>
-                    <label style="white-space:nowrap;font-size:13px;" title="實測會降低精準度（農業部 二級有說明 221→208、主計總處說明由精準句變整包），預設關閉"><input type="checkbox" id="mergeParenU" onchange="_onUnitMergeParen(this.checked)"> (n) 子項併回父句</label>
                     <span id="exportBtnU" style="display:none;">
                         <button class="btn-success" onclick="exportUnit('xlsx')" title="匯出目前查詢結果">匯出 xlsx</button>
                         <button class="btn-success" onclick="exportUnit('csv')" title="匯出目前查詢結果">匯出 csv</button>
@@ -175,7 +174,27 @@
         };
         let _unitProfile = 'auto';       // 使用者選定的機關規則
         let _unitAgency = '';            // 自動偵測到的機關名（頁首標題前的字串）
-        let _unitMergeParen = false;     // (n) 子項是否併回父句（預設關閉，見上）
+        // (n) 子項併回父句：保留程式碼但**已從 UI 移除**，只能由 console 呼叫
+        // _onUnitMergeParen(true) 開啟。理由是 17 份實測（六部會＋總統府／中研院／立法院／
+        // 司法院／數位發展部各署／文化部／經濟部／環境部／內政部）沒有任何一份真正受益：
+        //
+        //   指標              關      開
+        //   二級有說明       4,004  → 3,978   （少 26，變差）
+        //   孤兒句           1,329  →   920   （少 409，但是假象，見下）
+        //   規則 7 繼承次數    213  →     0   （完全失效）
+        //
+        // 孤兒句減少是假象：那些句子沒有被更好地歸戶，只是黏進父句後不再單獨計數，
+        // 同時真正拿到說明的科目反而變少。代價則很具體——每筆說明的平均長度暴增，
+        // 總統府 69→676 字、環境部 74→460、農業部 52→388、交通部 74→300，
+        // 一筆科目的說明從一句話變成整段（README 早期記錄的「精準句變整包」）。
+        //
+        // 且本選項與規則 7（(n) 子項繼承父句科目）**互斥**：本選項在斷句階段就把 (n) 黏進
+        // 父句，規則 7 在比對完成後才繼承，開了本選項規則 7 就沒東西可做（213→0）。
+        // 規則 7 保守得多（只在父句已被二級科目認領時才繼承），是目前唯一的 (n) 處理路徑。
+        //
+        // 之所以留著而非刪除：現有語料仍以 115 年度為主，跨年度樣本只有總統府與數位發展部
+        // 資安署兩組。等再累積幾個年度確認 (n) 語意穩定，再決定是否連程式碼一併移除。
+        let _unitMergeParen = false;     // 預設關閉；UI 已無此開關
         function _activeProfile() { return _UNIT_PROFILES[_unitProfile] || _UNIT_PROFILES.auto; }
         function _onUnitProfile(v) {
             _unitProfile = v;
