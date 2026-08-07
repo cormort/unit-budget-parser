@@ -43,6 +43,7 @@
         .up-legend .lg-amb { background: #ffd8b5; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
         #unitTable .up-clause { font-weight: 600; margin-bottom: 3px; }  /* 整段一句時抽出的本科目子句 */
+        #unitTable .up-combo-hit { border-bottom: 2px dotted #b36b00; }   /* 說明中的合併數：本科目只分攤其中一部分 */
         #unitTable .up-orphan td { background: #fff3cd; }  /* 未歸戶句：獨立列，插在敘述順序的前後科目之間 */
         #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
         #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
@@ -507,7 +508,10 @@
                             if (ok) pass.push(m);
                         }
                         if (pass.length === 1) {
-                            for (let k = 0; k < n; k++) if (pass[0] & (1 << k)) { u[k].descIdx = i; u[k].desc = f; u[k].comboMatched = true; }
+                            // 記下合併數與分攤明細：說明寫「4千元」而本列金額是 2，不記下來讀的人只會以為對不上。
+                            const mem = []; for (let k = 0; k < n; k++) if (pass[0] & (1 << k)) mem.push(u[k]);
+                            const split = mem.map(c => `${c.l2Name} ${_unitFmt(c.amount)}`).join('＋');
+                            for (const c of mem) { c.descIdx = i; c.desc = f; c.comboMatched = true; c.comboSum = X; c.comboSplit = split; }
                             claimed.add(i);
                             break;
                         }
@@ -1145,10 +1149,13 @@
             // 兩種標記一次掃完（不可分兩次 replace，否則後者會標到前者插入的標籤裡）：
             //   綠色底線＝說明中的金額與本科目金額相同（檢誤）；黃底＝符合搜尋關鍵字。
             //   重疊時取先出現者，同起點取較長者（例：搜「4,260」與金額同起點 → 金額較長勝出）。
-            const hi = (raw, amt) => {
+            const hi = (raw, amt, combo) => {
                 const s = String(raw || ''), marks = [];
                 if (amt) for (const m of s.matchAll(new RegExp('(?<![\\d,])' + _unitFmt(amt) + '千元', 'g')))
                     marks.push([m.index, m.index + m[0].length, 'up-amt-hit', '此金額與本科目金額相同']);
+                // 合併數：句中金額是數個科目的合計，與本列金額本來就不相等，標出分攤明細免得被誤讀為對不上
+                if (combo) for (const m of s.matchAll(new RegExp('(?<![\\d,])' + _unitFmt(combo.sum) + '千元', 'g')))
+                    marks.push([m.index, m.index + m[0].length, 'up-combo-hit', '合併數：' + combo.split]);
                 if (F.q) for (const m of s.matchAll(new RegExp(_reEsc(F.q), 'gi')))
                     marks.push([m.index, m.index + m[0].length, 'up-hit', '符合搜尋關鍵字']);
                 if (!marks.length) return escapeHtml(s);
@@ -1166,8 +1173,8 @@
             const dispSents = s => String(s || '')
                 .split(/(?<=。)|(?=[<＜]\d+[>＞])|(?=[（(]\d+[)）])/)
                 .map(x => x.trim()).filter(Boolean);
-            const bullets = (arr, cls, amt) => `<ul class="up-list">` +
-                arr.flatMap(f => dispSents(f.t)).map(t => `<li${cls ? ` class="${cls}"` : ''}>${hi(t, amt)}</li>`).join('') + `</ul>`;
+            const bullets = (arr, cls, amt, combo) => `<ul class="up-list">` +
+                arr.flatMap(f => dispSents(f.t)).map(t => `<li${cls ? ` class="${cls}"` : ''}>${hi(t, amt, combo)}</li>`).join('') + `</ul>`;
             const branchDesc = r => {
                 // 未歸戶句已插為獨立列（見 _insertOrphans），此處只留無金額的總述句
                 const ov = _branchOverview(r);
@@ -1178,13 +1185,14 @@
                 const acctCode = r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Code : r.l2Code);
                 const acctName = r.orphan ? '未歸戶' : (r.level === '分支計畫' ? '' : (r.level === '用途別一級' ? r.l1Name : r.l2Name));
                 const descSent = dispSents(r.desc);
-                const descBody = descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount)
-                    : hi(r.desc, r.amount);
+                const cb = r.comboMatched ? { sum: r.comboSum, split: r.comboSplit } : null;
+                const descBody = descSent.length > 1 ? bullets(descSent.map(t => ({ t })), '', r.amount, cb)
+                    : hi(r.desc, r.amount, cb);
                 // 整段一句時，子句擺前面加粗、整段收進可展開——資訊不減，但一眼看得到本科目那一節
                 const clause = _descClause(r);
                 const desc = r.level === '分支計畫' ? branchDesc(r)
                     : clause
-                        ? `<div class="up-clause">${hi(clause, r.amount)}</div>`
+                        ? `<div class="up-clause">${hi(clause, r.amount, cb)}</div>`
                         // 關鍵字可能只落在收合的整段裡，命中就先展開，否則搜尋等於沒標到
                         + `<details class="up-residue"${F.q ? ' open' : ''}><summary>整段說明（${r.desc.length} 字）</summary>${descBody}</details>`
                         : descBody;
@@ -1209,12 +1217,13 @@
                     + `</tr>`;
             }
             // 圖例不放在 <th> 內：表頭文字一長就換行變高，會與 sticky 的合計列重疊
-            const legend = `<div class="up-legend">編列說明底色：<span class="lg lg-fact">白＝金額／名稱命中（事實）</span>`
+            const legend = `<div class="up-legend">編列說明底色：<span class="lg lg-fact">白＝金額／名稱命中・合併數（事實）</span>`
                 + `<span class="lg lg-inf">黃＝順序推論・人數歸戶</span>`
                 + `<span class="lg lg-amb">橘＝區間多科目候選，待確認</span>`
                 + `<span class="lg lg-inf">黃底整列＝未歸戶句，插在敘述順序的前後科目之間，金額欄留空待人工歸戶</span>`
                 + `　分支列＝無金額總述句。<br>說明內文字標記：`
                 + `<span class="lg up-amt-hit">綠色底線＝此金額與本科目金額相同（檢誤）</span>`
+                + `<span class="lg up-combo-hit">橘色虛底線＝合併數：一句寫數個科目的合計，本列只分攤其中一部分（滑鼠移上看分攤明細）</span>`
                 + `<span class="lg up-hit">黃底＝符合搜尋關鍵字</span></div>`;
             document.getElementById('tableContainerU').innerHTML = filterHTML + reconLine + agencyLine + legend +
                 `<div class="d-table-wrap"><table id="unitTable"><thead><tr><th>工作計畫編號</th><th>工作計畫</th><th>分支計畫編號</th><th>分支計畫</th><th>用途別科目代碼</th><th style="min-width:160px;">用途別科目</th><th>金額</th><th style="min-width:340px;">編列說明</th></tr></thead><tbody>${totalRow}${body}</tbody></table></div>`;
