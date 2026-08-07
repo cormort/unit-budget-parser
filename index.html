@@ -310,6 +310,27 @@
                 else if (w.x >= bands.amt && w.x < bands.unit && _unitNum.test(s)) r.amt += s.match(_unitNum)[0];
                 // 承辦單位欄本工具不使用（該資訊改由編列說明中的括號註記取得）
                 else if (w.x >= bands.narr && w.y < narrCut) r.narr.push([w.x, w.s]);   // 表頭列以上＝頁首，不收
+                // 承辦單位欄與說明欄被 pdf.js 併成同一個 item 時，起點落在說明欄左緣之左，
+                // 整個 item 會被上一條丟掉，說明文字就此消失（實測數位發展部產業署、教育部）。
+                // 先收集，待整列組完再決定要不要切（見下方 _straddle 的說明）。
+                else if (w.y < narrCut && w.x >= bands.amt && w.w > 0 && w.x + w.w > bands.narr) {
+                    (r._straddle = r._straddle || []).push(w);
+                }
+            }
+            // 跨界 item 只在「該列沒有其他說明來源」時才切開採用。有其他來源時切出的殘段會與
+            // 既有文字交錯，join 後亂序；限定條件後 14 份實測有 11 份輸出完全不變，其餘只增不減。
+            // 切點依字元寬度累加至說明欄左緣——中文字寬約為半形兩倍，等寬估算會切歪。
+            for (const r of rows) {
+                if (!r._straddle || r.narr.length) continue;
+                for (const w of r._straddle) {
+                    const ch = [...w.s];
+                    const wt = c => /[一-鿿！-～　]/.test(c) ? 2 : 1;
+                    const unit = w.w / ch.reduce((t, c) => t + wt(c), 0);
+                    let acc = w.x, cut = 0;
+                    while (cut < ch.length && acc < bands.narr) { acc += wt(ch[cut]) * unit; cut++; }
+                    const right = ch.slice(cut).join('').trim();
+                    if (right) r.narr.push([bands.narr, right]);
+                }
             }
             const j = a => a.sort((x, y) => x[0] - y[0]).map(x => x[1]).join('');
             const out = rows.map(r => ({ _y: r._y, name: j(r.name), amt: r.amt, narr: j(r.narr) }));
@@ -774,7 +795,7 @@
                 const tc = await page.getTextContent();
                 const flat = tc.items.map(it => it.str).join('').replace(/[\s　]/g, '');
                 if (!flat.includes(_UNIT_TITLE)) continue;
-                const ws = tc.items.map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str }))
+                const ws = tc.items.map(it => ({ x: it.transform[4], y: it.transform[5], s: it.str, w: it.width }))
                     .filter(w => w.s.trim() !== '').sort((a, b) => b.y - a.y);
                 const head = _unitPageHead(ws, prevNarr);
                 if (head.narrX != null) prevNarr = head.narrX;

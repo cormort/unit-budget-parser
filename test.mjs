@@ -14,7 +14,8 @@ import vm from 'node:vm';
 // rows 含「未歸戶說明」列（每個未歸戶句一列，插在敘述順序的前後科目之間），故 rows = 科目列 + orphans
 const EXPECT = {
     'dgbas-115.pdf': { agency: '行政院主計總處', plans: 12, rows: 297, l2: 239, withDesc: 232, orphans: 1 },
-    'moe-115.pdf': { agency: '教育部', plans: 17, rows: 1313, l2: 622, withDesc: 144, orphans: 446 },
+    // 救回被承辦單位欄吞掉的說明後：rows 1313→1352、withDesc 144→148、orphans 446→485
+    'moe-115.pdf': { agency: '教育部', plans: 17, rows: 1352, l2: 622, withDesc: 148, orphans: 485 },
     'moa-115.pdf': { agency: '農業部', plans: 8, rows: 462, l2: 319, withDesc: 217, orphans: 23 },
     // 以下兩份含「非基準版面」，是欄界量測（_unitPageHead）的回歸樣本，不可只留基準版面的三份：
     //   mohw 整張表縮到約 95%（說明欄 x=356、內文 341，皆低於原本寫死的 359）——六份實測中僅此一份
