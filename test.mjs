@@ -17,13 +17,15 @@ const EXPECT = {
     // 救回被承辦單位欄吞掉的說明後：rows 1313→1352、withDesc 144→148、orphans 446→485
     // (n) 子句跟著父句歸屬分支層後：rows 1352→1348、orphans 485→481（17 份共少 23 筆孤兒列，
     // 字元多重集合完全一致＝那些句子只是從獨立列移到分支列，沒有任何文字遺失）
-    'moe-115.pdf': { agency: '教育部', plans: 17, rows: 1348, l2: 622, withDesc: 148, orphans: 481 },
-    'moa-115.pdf': { agency: '農業部', plans: 8, rows: 460, l2: 319, withDesc: 217, orphans: 21 },
+    // 計畫沿革句歸分支層後：rows 1348→1317、orphans 481→450（字元多重集合 0 差異）
+    'moe-115.pdf': { agency: '教育部', plans: 17, rows: 1317, l2: 622, withDesc: 148, orphans: 450 },
+    'moa-115.pdf': { agency: '農業部', plans: 8, rows: 453, l2: 319, withDesc: 217, orphans: 14 },
     // 以下兩份含「非基準版面」，是欄界量測（_unitPageHead）的回歸樣本，不可只留基準版面的三份：
     //   mohw 整張表縮到約 95%（說明欄 x=356、內文 341，皆低於原本寫死的 359）——六份實測中僅此一份
     //   motc／mohw 另含「一般性補助款－X」附冊，表頭字被逐字拆開且工作計畫表頭高出 7pt
-    'motc-115.pdf': { agency: '交通部', plans: 13, rows: 273, l2: 137, withDesc: 101, orphans: 27 },
-    'mohw-115.pdf': { agency: '衛生福利部', plans: 21, rows: 1318, l2: 889, withDesc: 719, orphans: 97 },
+    // #n 續項歸戶 −10、計畫沿革句歸分支層 −17：rows 273→246、orphans 27→0
+    'motc-115.pdf': { agency: '交通部', plans: 13, rows: 246, l2: 137, withDesc: 101, orphans: 0 },
+    'mohw-115.pdf': { agency: '衛生福利部', plans: 21, rows: 1311, l2: 889, withDesc: 719, orphans: 90 },
 };
 
 // 在 sandbox 中執行 index.html 的 <script>，以 stub 應付 DOM
