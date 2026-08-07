@@ -536,6 +536,27 @@
                 if (!owner) continue;
                 owner.desc += frags[i]; owner.inheritedSub = true; claimed.add(i);
             }
+            // #n 續項繼承前句最後一個 <m> 子項的科目。交通部把 <m> 子項再拆成 #1.#2.#3.…，
+            // 第一個 #1 與父句黏在同一切片（故父句被認領），其餘 #2 起自成切片而無主。
+            // 父句可能一次列出多個 <m>（<1>…<5>），故取「最後一個」被認領的二級科目——
+            // #n 續的是父句尾端那個 <m>，不是開頭那個。gate：父句最後一個 <m> 之後確實出現 #n
+            // （#n 序列真的在父句開場），且本句自己不含 <m>（含就是新子項，不是續項）。
+            // 「(含…千元)」這類非 (n) 的括號句同屬續項，一併沿用。
+            // 實測交通部 10 句歸戶、其餘四部會 0 句（無此寫法）；且金額精確相符：
+            // 5829010500|02 一般事務費 36,500+10,000+15,000+14,500+7,000+16,385+25,882 = 125,267、
+            // 5829010500|07 委辦費 24,120+24,120+92,162+32,160+28,438 = 201,000。
+            {
+                const isCont = f => /^[#＃]\d+[.．]/.test(f) || /^[（(](?!\d+[)）])/.test(f);
+                for (let i = 0; i < frags.length; i++) {
+                    if (claimed.has(i) || !isCont(frags[i]) || /[<＜]\d+[>＞]/.test(frags[i])) continue;
+                    let j = i - 1; while (j >= 0 && isCont(frags[j])) j--;
+                    if (j < 0) continue;
+                    if (!/[#＃]\d+[.．]/.test(frags[j].split(/[<＜]\d+[>＞]/).pop())) continue;
+                    const owner = [...br.codeRows].reverse().find(c => c.descIdx === j && c.l2Code);
+                    if (!owner) continue;
+                    owner.desc += frags[i]; owner.inheritedSub = true; claimed.add(i);
+                }
+            }
             // 第二輪：順序界限（推論）。被前後已對到的科目夾住、且中間未認領句數==中間未對到科目數 → 1:1 依序指派
             const cr = br.codeRows;
             for (let i = 0; i < cr.length;) {
@@ -896,8 +917,13 @@
                 _markSharedDesc(br, group);
                 const marks = (br.descFrags || []).map((f, idx) => ({ f, idx })).filter(x => !x.f.matched)
                     .map(o => {
-                        let pos = 0;
-                        group.forEach((g, gi) => { if (g.descIdx != null && g.descIdx < o.idx) pos = gi + 1; });
+                        // 取「敘述順序上最靠近的前一句」所屬科目（descIdx 最大者），不是表格順序的最後一個。
+                        // 兩者在敘述順序＝表格順序時完全等價（多數分支如此）；不一致時才有差——
+                        // 衛福部一段話一口氣列十幾個科目，descIdx 在表格順序上會來回跳（如 [8,7,9,12,7,13]），
+                        // 用表格位置會把孤兒句插到離它最遠的那一列後面。實測含孤兒句的分支順序倒置：
+                        // 衛福部 21/26、教育部 2/59，其餘三部會 0。
+                        let pos = 0, best = -1;
+                        group.forEach((g, gi) => { if (g.descIdx != null && g.descIdx < o.idx && g.descIdx >= best) { best = g.descIdx; pos = gi + 1; } });
                         return { pos, text: o.f.t };
                     });
                 for (let gi = 0; gi <= group.length; gi++) {
