@@ -105,7 +105,6 @@
                 <div class="controls" style="margin-top:10px;">
                     <span style="color:#6c757d;font-size:13px;">沒有檔案？載入範例：</span>
                     <button type="button" class="btn-secondary" onclick="loadUnitSample('dgbas')">行政院主計總處 115年度</button>
-                    <button type="button" class="btn-secondary" onclick="loadUnitSample('moe')">教育部 115年度</button>
                     <button type="button" class="btn-secondary" onclick="loadUnitSample('moa')">農業部 115年度</button>
                     <button type="button" class="btn-secondary" onclick="loadUnitSample('motc')">交通部 115年度</button>
                     <button type="button" class="btn-secondary" onclick="loadUnitSample('mohw')">衛生福利部 115年度</button>
@@ -678,10 +677,11 @@
             }));
         }
 
-        // 內建範例（與 repo 同源才能 fetch；PDF 為政府公開之單位預算案）
+        // 內建範例（與 repo 同源才能 fetch；PDF 為政府公開之單位預算案）。
+        // 不含教育部：它的說明按單位／業務寫，屬資料結構限制，不適合當測試或示範基準；
+        // 機關規則下拉仍保留「教育部」選項，因為使用者真的會上傳該機關的檔案。
         const _UNIT_SAMPLES = {
             dgbas: { file: 'examples/dgbas-115.pdf', label: '115年度行政院主計總處單位預算案' },
-            moe: { file: 'examples/moe-115.pdf', label: '教育部115年度單位預算' },
             moa: { file: 'examples/moa-115.pdf', label: '115年度農業部單位預算案' },
             motc: { file: 'examples/motc-115.pdf', label: '115年度交通部單位預算案' },
             mohw: { file: 'examples/mohw-115.pdf', label: '115年度衛生福利部單位預算案' },
