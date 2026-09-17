@@ -2,42 +2,7 @@
 // 與 test.mjs 相同做法：直接跑 index.html 內的 parseUnitDoc，不複寫規則。
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.js';
 import { readFile, writeFile } from 'fs/promises';
-import vm from 'node:vm';
-
-function loadTool(html) {
-    // 取最長的 inline <script>＝工具本體（頁面另有 GA 等短腳本，不能寫死第 1 個）
-    const js = html.split('<script>').slice(1).map(s => s.split('</script>')[0])
-        .reduce((a, b) => b.length > a.length ? b : a)
-        .replace(/pdfjsLib\.GlobalWorkerOptions[^\n]*\n/, '');
-    const stub = { files: { length: 0 }, style: {}, value: '', textContent: '', innerHTML: '', options: [], addEventListener() { }, querySelectorAll: () => [] };
-    const ctx = {
-        console, document: { getElementById: () => stub, querySelectorAll: () => [], createElement: () => stub },
-        window: {}, XLSX: {}, pdfjsLib: { GlobalWorkerOptions: {} },
-        URL: { createObjectURL: () => '', revokeObjectURL() { } }, Blob: function () { },
-    };
-    ctx.globalThis = ctx;
-    vm.createContext(ctx);
-    vm.runInContext(js, ctx);
-    return ctx;
-}
-
-// 上下合計驗算（同 test.mjs）
-function reconcile(rows) {
-    const l2s = {}, l1a = {}, brs = {}, bra = {}, pls = {}, plb = {};
-    for (const r of rows) {
-        const a = +r.amount;
-        plb[r.planCode] = +r.planBudget.replace(/,/g, '');
-        const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
-        if (r.level === '分支計畫') { bra[bk] = a; pls[r.planCode] = (pls[r.planCode] || 0) + a; }
-        else if (r.level === '用途別一級') { l1a[lk] = a; brs[bk] = (brs[bk] || 0) + a; }
-        else l2s[lk] = (l2s[lk] || 0) + a;
-    }
-    const bad = [];
-    for (const k in l1a) if (l2s[k] !== undefined && l2s[k] !== l1a[k]) bad.push(`一級 ${k}: ${l1a[k]} ≠ Σ二級 ${l2s[k]}`);
-    for (const k in bra) if (brs[k] !== undefined && brs[k] !== bra[k]) bad.push(`分支 ${k}: ${bra[k]} ≠ Σ一級 ${brs[k]}`);
-    for (const k in plb) if (pls[k] !== undefined && pls[k] !== plb[k]) bad.push(`計畫 ${k}: ${plb[k]} ≠ Σ分支 ${pls[k]}`);
-    return bad;
-}
+import { loadTool, reconcile, issueText } from './harness.mjs';
 
 const csv = rows => {
     const cols = [...new Set(rows.flatMap(Object.keys))].filter(c => c !== 'descFrags' && !c.startsWith('_'));
@@ -57,7 +22,7 @@ for (const pdfPath of process.argv.slice(2)) {
     await writeFile(out, csv(rows));
 
     const l2 = rows.filter(r => r.level === '用途別二級');
-    const bad = reconcile(rows);
+    const bad = reconcile(ctx, rows);
     console.log(`${ctx.detectedAgency()}｜${new Set(rows.map(r => r.planCode)).size} 計畫／${rows.length} 列｜二級 ${l2.length}（有說明 ${l2.filter(r => r.desc).length}）｜孤兒句 ${rows.filter(r => r.level === '分支計畫').reduce((n, r) => n + (r.descFrags || []).filter(f => !f.matched).length, 0)}｜四層驗算 ${bad.length} 不符 → ${out}`);
-    bad.slice(0, 10).forEach(m => console.log('    ' + m));
+    bad.slice(0, 10).forEach(m => console.log('    ' + issueText(m)));
 }

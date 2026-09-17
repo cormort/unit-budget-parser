@@ -86,7 +86,7 @@
                     <label for="fileInputU" class="file-label">選擇 PDF 檔案</label>
                     <input type="file" id="fileInputU" accept=".pdf">
                     <span id="fileNameDisplayU">尚未選擇檔案</span>
-                    <button id="extractBtnU" class="btn-main" onclick="parseUnitPlanPdf()">解析</button>
+                    <button type="button" id="extractBtnU" class="btn-main" onclick="parseUnitPlanPdf()">解析</button>
                     <label style="white-space:nowrap;">機關規則：<select id="profileU" onchange="_onUnitProfile(this.value)" style="padding:6px;border:1px solid #ccc;border-radius:4px;" title="通用規則已適用實測六機關；選特定機關可套用該機關的別名寫法">
                         <option value="auto">通用（自動偵測機關）</option>
                         <option value="dgbas">行政院主計總處</option>
@@ -97,27 +97,33 @@
                         <option value="mohw">衛生福利部</option>
                     </select></label>
                     <span id="exportBtnU" style="display:none;">
-                        <button class="btn-success" onclick="exportUnit('xlsx')" title="匯出目前查詢結果">匯出 xlsx</button>
-                        <button class="btn-success" onclick="exportUnit('csv')" title="匯出目前查詢結果">匯出 csv</button>
-                        <button class="btn-success" onclick="exportUnit('json')" title="匯出目前查詢結果">匯出 json</button>
+                        <button type="button" class="btn-success" onclick="exportUnit('xlsx')" title="匯出目前查詢結果">匯出 xlsx</button>
+                        <button type="button" class="btn-success" onclick="exportUnit('csv')" title="匯出目前查詢結果">匯出 csv</button>
+                        <button type="button" class="btn-success" onclick="exportUnit('json')" title="匯出目前查詢結果">匯出 json</button>
                     </span>
                 </div>
                 <div class="controls" style="margin-top:10px;">
                     <span style="color:#6c757d;font-size:13px;">沒有檔案？載入範例：</span>
-                    <button class="btn-secondary" onclick="loadUnitSample('dgbas')">行政院主計總處 115年度</button>
-                    <button class="btn-secondary" onclick="loadUnitSample('moe')">教育部 115年度</button>
-                    <button class="btn-secondary" onclick="loadUnitSample('moa')">農業部 115年度</button>
-                    <button class="btn-secondary" onclick="loadUnitSample('motc')">交通部 115年度</button>
-                    <button class="btn-secondary" onclick="loadUnitSample('mohw')">衛生福利部 115年度</button>
+                    <button type="button" class="btn-secondary" onclick="loadUnitSample('dgbas')">行政院主計總處 115年度</button>
+                    <button type="button" class="btn-secondary" onclick="loadUnitSample('moe')">教育部 115年度</button>
+                    <button type="button" class="btn-secondary" onclick="loadUnitSample('moa')">農業部 115年度</button>
+                    <button type="button" class="btn-secondary" onclick="loadUnitSample('motc')">交通部 115年度</button>
+                    <button type="button" class="btn-secondary" onclick="loadUnitSample('mohw')">衛生福利部 115年度</button>
                 </div>
             </div>
-            <div id="statusMessageU" class="message status-message"></div>
-            <div id="errorOutputU" class="message error-message"></div>
+            <div id="statusMessageU" class="message status-message" role="status" aria-live="polite"></div>
+            <div id="errorOutputU" class="message error-message" role="alert"></div>
             <div id="tableContainerU"><p>結構表將顯示於此處。</p></div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- 兩支外部程式庫都加上 SRI（integrity）＋crossorigin：CDN 內容若被更動，瀏覽器直接拒絕執行，
+         而不是照跑被動過手腳的程式。workerSrc 只吃 URL、無法套 SRI，這是已知的殘餘風險（見 README）。 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"
+            integrity="sha384-RPl3/z3fjdXhY+fi+x3Ai8ri9BnaFQ2tIZn+wJ4pNmFqp/KvdiIcqMESTEY2MdUz"
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+            integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
 
@@ -132,7 +138,11 @@
         const _UNIT_TITLE = '歲出計畫提要及分支計畫概況表';
         const _unitNum = /^-?[\d,]+/;
         // 官方「歲出用途別科目分類定義」一級+二級 代碼→標準名（用於校正被截斷/異體字的科目名）
-        const _ACCT = { '1000': '人事費', '1005': '民意代表待遇', '1010': '政務人員待遇', '1015': '法定編制人員待遇', '1020': '約聘僱人員待遇', '1025': '技工及工友待遇', '1030': '獎金', '1035': '其他給與', '1040': '加班費', '1045': '退休退職給付', '1050': '退休離職儲金', '1055': '保險', '1060': '調待準備', '2000': '業務費', '2003': '教育訓練費', '2006': '水電費', '2009': '通訊費', '2012': '土地租金', '2015': '權利使用費', '2018': '資訊服務費', '2021': '其他業務租金', '2024': '稅捐及規費', '2027': '保險費', '2030': '兼職費', '2033': '約用人員酬金', '2036': '按日按件計資酬金', '2039': '委辦費', '2042': '國際組織會費', '2045': '國內組織會費', '2048': '軍事裝備及設施', '2051': '物品', '2054': '一般事務費', '2057': '給養費', '2060': '軍事裝備設施養護費', '2063': '房屋建築養護費', '2066': '器具養護費', '2069': '設施及機械設備養護費', '2072': '國內旅費', '2075': '大陸地區旅費', '2078': '國外旅費', '2081': '運費', '2084': '短程車資', '2087': '機要費', '2090': '機密費', '2093': '特別費', '3000': '設備及投資', '3005': '土地', '3010': '房屋建築及設備費', '3015': '公共建設及設施費', '3020': '機械設備費', '3025': '運輸設備費', '3030': '資訊軟硬體設備費', '3035': '雜項設備費', '3040': '權利', '3045': '投資', '4000': '獎補助費', '4005': '對直轄市政府之補助', '4010': '對各縣市政府之補助', '4020': '地方政府對下級政府之補助', '4025': '政府機關間之補助', '4030': '對特種基金之補助', '4035': '對外之捐助', '4040': '對國內團體之捐助', '4045': '對私校之獎助', '4050': '對學生之獎助', '4055': '社會保險負擔', '4060': '對公保軍保退撫基金之補助及挹注', '4065': '社會福利津貼及濟助', '4070': '公費就養及醫療補助', '4075': '差額補貼', '4080': '損失及賠償', '4085': '獎勵及慰問', '4090': '其他補助及捐助', '5000': '債務費', '5005': '債務利息', '5010': '手續費', '6000': '預備金', '6010': '第二預備金', '6015': '其他準備金' };
+        const _ACCT = { '1000': '人事費', '1005': '民意代表待遇', '1010': '政務人員待遇', '1015': '法定編制人員待遇', '1020': '約聘僱人員待遇', '1025': '技工及工友待遇', '1030': '獎金', '1035': '其他給與', '1040': '加班費', '1045': '退休退職給付', '1050': '退休離職儲金', '1055': '保險', '1060': '調待準備', '2000': '業務費', '2003': '教育訓練費', '2006': '水電費', '2009': '通訊費', '2012': '土地租金', '2015': '權利使用費', '2018': '資訊服務費', '2021': '其他業務租金', '2024': '稅捐及規費', '2027': '保險費', '2030': '兼職費', '2033': '約用人員酬金', '2036': '按日按件計資酬金', '2039': '委辦費', '2042': '國際組織會費', '2045': '國內組織會費', '2048': '軍事裝備及設施', '2051': '物品', '2054': '一般事務費', '2057': '給養費', '2060': '軍事裝備設施養護費', '2063': '房屋建築養護費', '2066': '器具養護費', '2069': '設施及機械設備養護費', '2072': '國內旅費', '2075': '大陸地區旅費', '2078': '國外旅費', '2081': '運費', '2084': '短程車資', '2087': '機要費', '2090': '機密費', '2093': '特別費', '3000': '設備及投資', '3005': '土地', '3010': '房屋建築及設備費', '3015': '公共建設及設施費', '3020': '機械設備費', '3025': '運輸設備費', '3030': '資訊軟硬體設備費', '3035': '雜項設備費', '3040': '權利', '3045': '投資', '4000': '獎補助費', '4005': '對直轄市政府之補助', '4010': '對各縣市政府之補助', '4020': '地方政府對下級政府之補助', '4025': '政府機關間之補助', '4030': '對特種基金之補助', '4035': '對外之捐助', '4040': '對國內團體之捐助', '4045': '對私校之獎助', '4050': '對學生之獎助', '4055': '社會保險負擔', '4060': '對公保軍保退撫基金之補助及挹注', '4065': '社會福利津貼及濟助', '4070': '公費就養及醫療補助', '4075': '差額補貼', '4080': '損失及賠償', '4085': '獎勵及慰問', '4090': '其他補助及捐助', '5000': '債務費', '5005': '債務利息', '5010': '手續費', '6000': '預備金', '6005': '第一預備金', '6010': '第二預備金', '6015': '其他準備金' };
+        // 用 function 宣告取用官方科目名：const 不會掛上 vm 的 global，node 端的批次稽核
+        // 就無法核對「代碼是否在官方清單內」，只能自己複製一份清單（那就是漂移的開始）。
+        function _acctName(code) { return _ACCT[code]; }
+
         // 二級科目別名：敘述用字與官方三級科目名不同時，靠別名歸戶（可持續擴充）
         const _ACCT_ALIAS = { '1040': ['超時工作加班費', '超時加班費', '不休假加班費', '未休假加班費'] };
 
@@ -949,12 +959,23 @@
             return res;
         }
 
+        // 解析世代編號：切換機關規則、連點兩份範例、或解析中又按一次「解析」時，可能同時有
+        // 兩個解析在跑。沒編號時「先開始、後完成」的那個會蓋掉新結果，而且完成訊息讀的是
+        // 當下的 _unitProfile——畫面於是顯示「機關規則：交通部」卻配著教育部規則算出來的資料。
+        // 規則：只有最新一代能寫入 _unitRows／畫面與按鈕狀態；舊世代一完成就丟棄。
+        let _parseSeq = 0;
         async function parseUnitPlanPdf() {
             const el = { st: document.getElementById('statusMessageU'), er: document.getElementById('errorOutputU') };
             const show = (e, t) => { el.st.style.display = 'none'; el.er.style.display = 'none'; e.textContent = t; e.style.display = 'block'; };
             const files = document.getElementById('fileInputU').files;
             if (files && files.length) _unitData = null;
             else if (!_unitData) { show(el.er, '請先選擇 PDF 檔案，或點下方載入範例！'); return; }
+            const seq = ++_parseSeq;
+            const stale = () => seq !== _parseSeq;
+            // 這一代用的規則要在開始時就固定下來：完成訊息不能用「現在的」_unitProfile，
+            // 那可能是使用者在解析途中改的，會把舊規則的資料標成新規則。
+            const profile = _unitProfile, mergeParen = _unitMergeParen;
+            const pLblOf = () => profile === 'auto' ? `自動偵測：${_unitAgency || '未知機關'}` : (_UNIT_PROFILES[profile] || _UNIT_PROFILES.auto).label;
             document.getElementById('extractBtnU').disabled = true;
             document.getElementById('exportBtnU').style.display = 'none';
             let task = null;
@@ -963,24 +984,30 @@
                 _unitData = data;   // 記住資料，切換機關規則時可直接重解析（傳給 worker 是結構化複製，destroy 後快取仍可用）
                 task = pdfjsLib.getDocument({ data });
                 const pdf = await task.promise;
-                const out = await parseUnitDoc(pdf, (i, n) => show(el.st, `正在處理第 ${i} / ${n} 頁...`));
-                _unitRows = out;
+                const out = await parseUnitDoc(pdf, (i, n) => { if (!stale()) show(el.st, `正在處理第 ${i} / ${n} 頁...`); });
+                if (stale()) return;
                 // 同一本預算書的歲出機關別預算表＝工作計畫編號／名稱／本年度預算數的外部對照
-                const ag = await parseAgencyPlanTable(pdf, (i, n) => show(el.st, `核對歲出機關別預算表 ${i} / ${n} 頁...`));
+                const ag = await parseAgencyPlanTable(pdf, (i, n) => { if (!stale()) show(el.st, `核對歲出機關別預算表 ${i} / ${n} 頁...`); });
+                if (stale()) return;
+                _unitRows = out;
                 _agencyPlans = ag.pages ? ag.map : null;
                 // 重新解析＝換了資料或規則，所有篩選條件（含說明搜尋）都要清掉，
                 // 否則舊條件會靜默過濾新結果
                 _unitFilter.plan = _unitFilter.branch = _unitFilter.l1 = _unitFilter.l2 = '';
                 _unitFilter.method = _unitFilter.q = '';
-                if (!out.length) { show(el.er, '找不到「歲出計畫提要及分支計畫概況表」，請確認檔案。'); document.getElementById('extractBtnU').disabled = false; return; }
+                if (!out.length) { show(el.er, '找不到「歲出計畫提要及分支計畫概況表」，請確認檔案。'); return; }
                 _renderUnitPlan(out);
                 const nplan = new Set(out.map(r => r.planCode)).size;
-                const pLbl = _unitProfile === 'auto' ? `自動偵測：${_unitAgency || '未知機關'}` : _activeProfile().label;
-                show(el.st, `解析完成：${nplan} 個工作計畫、${out.length} 列。（機關規則：${pLbl}${_unitMergeParen ? '，(n) 併回父句' : ''}）`);
+                show(el.st, `解析完成：${nplan} 個工作計畫、${out.length} 列。（機關規則：${pLblOf()}${mergeParen ? '，(n) 併回父句' : ''}）`);
                 document.getElementById('exportBtnU').style.display = 'inline-block';
-            } catch (e) { show(el.er, '解析失敗：' + e.message); console.error(e); }
-            finally { if (task) task.destroy(); }   // 釋放 pdf.js 文件與 worker，否則每次重解析都累積一組
-            document.getElementById('extractBtnU').disabled = false;
+            } catch (e) {
+                if (stale()) return;                 // 舊世代的失敗不該蓋掉新世代的畫面
+                show(el.er, '解析失敗：' + e.message); console.error(e);
+            }
+            finally {
+                if (task) task.destroy();            // 釋放 pdf.js 文件與 worker，否則每次重解析都累積一組
+                if (!stale()) document.getElementById('extractBtnU').disabled = false;   // 只由最新一代放行按鈕
+            }
         }
 
         // 歸戶方式：事實級（金額命中／加總）與推論級要能分辨並篩選，供人工複核。
@@ -1015,17 +1042,21 @@
         // 計畫沿革句：講整個計畫的核定文號、總經費、期程與各機關分攤，屬計畫層而非某科目。
         // 判定另有金額否決（見 _planNarr），故此處只是特徵詞，不會單獨生效。
         const _PLAN_NARR = /函核定|奉行政院|總經費|期程自/;
-        const _branchOverview = r => {
+        // 用 function 宣告（不用 const）：const 不會掛上 vm 的 global，回歸測試與批次稽核就取不到；
+        // 「哪些句子算分支層總述、會顯示在分支列」是文字是否遺失的判準，必須只有一份。
+        function _branchOverview(r) {
             const amtRe = new RegExp(`(^|[^\\d,])${_unitFmt(r.amount).replace(/,/g, '[,，]?')}千元`);
             // f.brSub＝父句屬分支層的 (n) 子句。這裡必須一起顯示：只在 descFrags 標 matched
             // 而不放行顯示，該句就不會另立未歸戶列、也不會出現在分支列，整段文字靜默消失。
             return (r.descFrags || []).filter(f => f.matched
                 && (f.brSub || f.plan || !/千元/.test(f.t) || _BRANCH_SELF.test(f.t) || amtRe.test(f.t)));
-        };
+        }
         // 分支列的說明＝總述句。未歸戶句已各自成列，不再串進分支列，否則匯出會重複一份。
-        const _unitDesc = r => r.level === '分支計畫'
-            ? _branchOverview(r).map(f => f.t).join('')
-            : (r.desc || '');
+        function _unitDesc(r) {
+            return r.level === '分支計畫'
+                ? _branchOverview(r).map(f => f.t).join('')
+                : (r.desc || '');
+        }
 
         // 說明子句：同一段說明被該分支多列共用時（整段一句、或總述句同時屬於分支與一級科目），
         // 切句後整段就是一句，於是同一大段會掛在該分支底下每個科目——歸戶是對的
@@ -1049,25 +1080,46 @@
                 && (!F.method || _matchMethod(r) === F.method);
         }
 
-        function _renderUnitPlan(rows) {
-            const fmt = n => (+n).toLocaleString('en-US');
-            // 上下合計驗算：二級→一級、一級→分支、分支→工作計畫（用完整資料建表，篩選不影響驗算）
+        // 上下合計驗算：二級→一級、一級→分支、分支→工作計畫。
+        // 只有這一支是唯一的判準——畫面標紅、node 回歸測試、批次稽核全部呼叫它。
+        // 原本這條規則被複寫四份（本檔內嵌、test.mjs、run.mjs、audit.mjs），而 run.mjs 那份
+        // 已經漂移成 `else`（任何非分支／非一級的列只要有金額就累進二級），本專案開頭就寫明
+        // 「驗證腳本自行複寫規則會得出失真結論」，這正是那個坑。
+        // 未歸戶說明列金額為空、也不屬任何層級，依 level 明確排除。
+        function _reconcileUnit(rows) {
             const l2s = {}, l1a = {}, brs = {}, bra = {}, pls = {}, plb = {};
             for (const r of rows) {
-                const a = +r.amount; plb[r.planCode] = +r.planBudget.replace(/,/g, '');
+                const a = +r.amount; plb[r.planCode] = +String(r.planBudget == null ? '' : r.planBudget).replace(/,/g, '');
                 const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
                 if (r.level === '分支計畫') { bra[bk] = a; pls[r.planCode] = (pls[r.planCode] || 0) + a; }
                 else if (r.level === '用途別一級') { l1a[lk] = a; brs[bk] = (brs[bk] || 0) + a; }
                 else if (r.level === '用途別二級') { l2s[lk] = (l2s[lk] || 0) + a; }
             }
-            const bad = r => {
+            const issues = [];
+            for (const k in l1a) if (l2s[k] !== undefined && l2s[k] !== l1a[k]) issues.push({ level: '用途別一級', key: k, listed: l1a[k], sum: l2s[k] });
+            for (const k in bra) if (brs[k] !== undefined && brs[k] !== bra[k]) issues.push({ level: '分支計畫', key: k, listed: bra[k], sum: brs[k] });
+            for (const k in plb) if (pls[k] !== undefined && pls[k] !== plb[k]) issues.push({ level: '工作計畫', key: k, listed: plb[k], sum: pls[k] });
+            const badRowKeys = new Set();
+            for (const r of rows) {
                 const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
-                if (r.level === '用途別一級') return l2s[lk] !== undefined && l2s[lk] !== l1a[lk];
-                if (r.level === '分支計畫') return brs[bk] !== undefined && brs[bk] !== bra[bk];
+                if (r.level === '用途別一級' && l2s[lk] !== undefined && l2s[lk] !== l1a[lk]) badRowKeys.add(bk + '|' + r.l1Code);
+                else if (r.level === '分支計畫' && brs[bk] !== undefined && brs[bk] !== bra[bk]) badRowKeys.add(bk);
+            }
+            return { issues, badRowKeys, badCount: issues.length };
+        }
+
+        function _renderUnitPlan(rows) {
+            const fmt = n => (+n).toLocaleString('en-US');
+            // 用完整資料建表，篩選不影響驗算
+            const _rec = _reconcileUnit(rows);
+            // 只標紅「本身是加總上層、且與下層對不上」的列（一級、分支）——與原本行為一致：
+            // 二級列不是加總的對象，不跟著上層一起標紅。
+            const bad = r => {
+                if (r.level === '用途別一級') return _rec.badRowKeys.has(r.planCode + '|' + r.branchCode + '|' + r.l1Code);
+                if (r.level === '分支計畫') return _rec.badRowKeys.has(r.planCode + '|' + r.branchCode);
                 return false;
             };
-            const badCount = rows.filter(bad).length
-                + Object.keys(plb).filter(p => pls[p] !== undefined && pls[p] !== plb[p]).length;
+            const badCount = _rec.badCount;
             const reconLine = badCount === 0
                 ? `<div style="margin:8px 0;color:#155724;">✅ 上下合計驗算全數通過（二級→一級→分支→工作計畫）</div>`
                 : `<div style="margin:8px 0;color:#dc3545;font-weight:600;">⚠ 上下合計驗算有 ${badCount} 處不符，已於該列金額標紅</div>`;
@@ -1132,7 +1184,7 @@
             const F = _unitFilter;
             const selHTML = (k, label, opts, cur) => `<label style="margin-right:14px;white-space:nowrap;">${label}：<select onchange="_onUnitFilter('${k}',this.value)" style="padding:6px;border:1px solid #ccc;border-radius:4px;max-width:260px;"><option value="">全部</option>${opts.map(o => `<option value="${escapeHtml(o.v)}"${o.v === cur ? ' selected' : ''}>${escapeHtml(o.t)}</option>`).join('')}</select></label>`;
             const searchHTML = `<label style="margin-right:14px;white-space:nowrap;">編列說明搜尋：<input type="text" value="${escapeHtml(F.q)}" placeholder="輸入關鍵字後按 Enter" oninput="_unitFilter.q=this.value.trim()" onchange="_renderUnitPlan(_unitRows)" style="padding:6px;border:1px solid #ccc;border-radius:4px;width:220px;"></label>`;
-            const clearHTML = (F.plan || F.branch || F.l1 || F.l2 || F.q || F.method) ? `<button class="btn-secondary" onclick="_unitFilter.q='';_unitFilter.method='';_onUnitFilter('plan','');" title="清除全部條件" style="padding:6px 12px;">清除</button>` : '';
+            const clearHTML = (F.plan || F.branch || F.l1 || F.l2 || F.q || F.method) ? `<button type="button" class="btn-secondary" onclick="_unitFilter.q='';_unitFilter.method='';_onUnitFilter('plan','');" title="清除全部條件" style="padding:6px 12px;">清除</button>` : '';
             const filterHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px 0;align-items:center;margin:10px 0;">${selHTML('plan', '工作計畫', planOpts, F.plan)}${selHTML('branch', '分支計畫', brOpts, F.branch)}${selHTML('l1', '一級科目', l1Opts, F.l1)}${selHTML('l2', '二級科目', l2Opts, F.l2)}${methodOpts.length ? selHTML('method', '歸戶方式', methodOpts, F.method) : ''}${searchHTML}${clearHTML}</div>`;
 
             // 篩選（含編列說明文字查詢）
