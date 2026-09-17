@@ -2,13 +2,15 @@
 //
 // 關鍵設計：直接載入 index.html 內的解析核心（parseUnitDoc）來跑，不自行複寫規則。
 // 本專案曾因外部驗證腳本自行複寫解析迴圈而得出失真結論（斷裂數字、孤兒句數量全錯），
-// 所以測試必須跑「實際上線的那份程式碼」。
+// 所以測試必須跑「實際上線的那份程式碼」。載入器與查核規則收在 harness.mjs，
+// 與 audit.mjs 共用同一份，避免兩邊各寫一次又漂移。
 //
 //   npm install && npm test
 //
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.js';
 import { readFile } from 'fs/promises';
 import vm from 'node:vm';
+import { loadTool, reconcile, issueText, narrativeVisibility, factClaimIssues, acctCodeIssues } from './harness.mjs';
 
 // ── 期望值：任何規則改動若動到既有歸屬，這裡就會失敗 ──
 // rows 含「未歸戶說明」列（每個未歸戶句一列，插在敘述順序的前後科目之間），故 rows = 科目列 + orphans
@@ -27,42 +29,6 @@ const EXPECT = {
     'motc-115.pdf': { agency: '交通部', plans: 13, rows: 246, l2: 137, withDesc: 101, orphans: 0 },
     'mohw-115.pdf': { agency: '衛生福利部', plans: 21, rows: 1311, l2: 889, withDesc: 719, orphans: 90 },
 };
-
-// 在 sandbox 中執行 index.html 的 <script>，以 stub 應付 DOM
-function loadTool(html) {
-    // 取最長的 inline <script>＝工具本體（頁面另有 GA 等短腳本，不能寫死第 1 個）
-    const js = html.split('<script>').slice(1).map(s => s.split('</script>')[0])
-        .reduce((a, b) => b.length > a.length ? b : a)
-        .replace(/pdfjsLib\.GlobalWorkerOptions[^\n]*\n/, '');
-    const stub = { files: { length: 0 }, style: {}, value: '', textContent: '', innerHTML: '', options: [], addEventListener() { }, querySelectorAll: () => [] };
-    const ctx = {
-        console, document: { getElementById: () => stub, querySelectorAll: () => [], createElement: () => stub },
-        window: {}, XLSX: {}, pdfjsLib: { GlobalWorkerOptions: {} },
-        URL: { createObjectURL: () => '', revokeObjectURL() { } }, Blob: function () { },
-    };
-    ctx.globalThis = ctx;
-    vm.createContext(ctx);
-    vm.runInContext(js, ctx);
-    return ctx;
-}
-
-// 上下合計驗算：二級→一級→分支→工作計畫預算金額
-function reconcile(rows) {
-    const l2s = {}, l1a = {}, brs = {}, bra = {}, pls = {}, plb = {};
-    for (const r of rows) {
-        const a = +r.amount;
-        plb[r.planCode] = +r.planBudget.replace(/,/g, '');
-        const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
-        if (r.level === '分支計畫') { bra[bk] = a; pls[r.planCode] = (pls[r.planCode] || 0) + a; }
-        else if (r.level === '用途別一級') { l1a[lk] = a; brs[bk] = (brs[bk] || 0) + a; }
-        else if (r.level === '用途別二級') l2s[lk] = (l2s[lk] || 0) + a;   // 未歸戶說明列無金額，不入加總
-    }
-    const bad = [];
-    for (const k in l1a) if (l2s[k] !== undefined && l2s[k] !== l1a[k]) bad.push(`一級 ${k}: ${l1a[k]} ≠ Σ二級 ${l2s[k]}`);
-    for (const k in bra) if (brs[k] !== undefined && brs[k] !== bra[k]) bad.push(`分支 ${k}: ${bra[k]} ≠ Σ一級 ${brs[k]}`);
-    for (const k in plb) if (pls[k] !== undefined && pls[k] !== plb[k]) bad.push(`計畫 ${k}: ${plb[k]} ≠ Σ分支 ${pls[k]}`);
-    return bad;
-}
 
 // 工作計畫核對：概況表的每個工作計畫，都要能在歲出機關別預算表找到相同的編號、
 // 相容的名稱與相同的本年度預算數。四層驗算只證明概況表「自己前後一致」（頂端的工作計畫
@@ -116,16 +82,134 @@ for (const [file, want] of Object.entries(EXPECT)) {
 
     const errs = Object.entries(want).filter(([k, v]) => got[k] !== v)
         .map(([k, v]) => `${k}: 期望 ${v}，實際 ${got[k]}`);
-    errs.push(...reconcile(rows).map(m => '四層驗算不符 → ' + m));
+    errs.push(...reconcile(ctx, rows).map(m => '四層驗算不符 → ' + issueText(m)));
     errs.push(...crossCheckAgency(ctx, rows, agency).map(m => '工作計畫核對不符 → ' + m));
+    // 說明文字不得因為歸戶失敗而消失（每個切出來的句子都要在使用者看得到的地方）
+    const nv = narrativeVisibility(ctx, rows);
+    errs.push(...nv.lost.map(x => `說明文字消失 → ${x.branch}「${x.text.slice(0, 40)}」`));
+    // 白底「事實級」標記必須自證（名稱＋金額、句中加總、合併數）
+    errs.push(...factClaimIssues(rows).map(x => `${x.kind} → ${x.detail}`));
+    // 科目代碼必須在官方清單內（不在清單就不會被名稱校正，也可能是代碼讀錯）
+    errs.push(...acctCodeIssues(ctx, rows).map(x => `${x.kind} → ${x.detail}`));
 
     if (errs.length) {
         failed++;
         console.error(`✗ ${file}`);
         errs.forEach(e => console.error('    ' + e));
     } else {
-        console.log(`✓ ${file}  ${got.agency}｜${got.plans} 計畫／${got.rows} 列｜二級 ${got.l2}（有說明 ${got.withDesc}）｜孤兒句 ${got.orphans}｜四層驗算 0 不符｜工作計畫核對 ${got.plans}/${got.plans}（機關別表 ${agency.pages} 頁）`);
+        console.log(`✓ ${file}  ${got.agency}｜${got.plans} 計畫／${got.rows} 列｜二級 ${got.l2}（有說明 ${got.withDesc}）｜孤兒句 ${got.orphans}｜四層驗算 0 不符｜工作計畫核對 ${got.plans}/${got.plans}（機關別表 ${agency.pages} 頁）｜說明 ${nv.frags} 句零遺失｜事實級標記自證 0 誤`);
     }
+}
+
+// ── 工程契約與查核規則本身的負向測試 ──
+// 上面驗的是「解析結果對不對」，這裡驗的是「防護有沒有裝好」：契約一旦被拿掉、或查核規則
+// 被改成永遠通過，這些斷言就會失敗。每一條都對應一個真的踩過的坑或真的修過的行為。
+const contract = (ok, label, detail) => {
+    if (ok) { console.log(`✓ ${label}`); return 0; }
+    console.error(`✗ ${label}${detail ? '：' + detail : ''}`);
+    return 1;
+};
+
+{
+    const ctx = loadTool(html);
+
+    // (1) CDN 程式庫要有 SRI＋crossorigin：CDN 被換內容時瀏覽器必須拒絕執行
+    const sriOf = src => {
+        const tag = html.match(new RegExp(`<script[^>]*${src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^>]*>`, 'i'));
+        return tag ? /integrity="sha384-[^"]+"/.test(tag[0]) && /crossorigin=/.test(tag[0]) : null;
+    };
+    const pdfSri = sriOf('pdf.js/2.10.377/pdf.min.js');
+    const xlsxSri = sriOf('xlsx/0.18.5/xlsx.full.min.js');
+    failed += contract(pdfSri && xlsxSri, 'CDN 程式庫都有 SRI + crossorigin', `pdf.js=${JSON.stringify(pdfSri)} xlsx=${JSON.stringify(xlsxSri)}`);
+
+    // (2) 狀態與錯誤訊息要讓螢幕報讀器唸得出來；靜態按鈕都要明確 type=button
+    const a11yOk = /id="statusMessageU"[^>]*role="status"/.test(html) && /aria-live="polite"/.test(html)
+        && /id="errorOutputU"[^>]*role="alert"/.test(html);
+    const btns = html.match(/<button(?![^>]*type=)[^>]*>/g) || [];
+    failed += contract(a11yOk && btns.length === 0, '狀態／錯誤訊息有 aria-live 與 role，按鈕都有 type=button', `缺少 role 的訊息=${!a11yOk}，沒有 type 的按鈕=${btns.length}`);
+
+    // (3) 四層驗算只有一支：未歸戶說明列（有金額、也帶 l1Code）不得被算進二級。
+    //     這正是 run.mjs 舊複本用 `else` 會出錯、而 index.html 與 test.mjs 不會的形狀。
+    const orphanLike = [
+        { level: '用途別一級', planCode: 'P', branchCode: '01', l1Code: '1000', amount: '100', planBudget: '100' },
+        { level: '用途別二級', planCode: 'P', branchCode: '01', l1Code: '1000', l2Code: '1005', amount: '100' },
+        { level: '未歸戶說明', planCode: 'P', branchCode: '01', l1Code: '1000', amount: '999', desc: 'x', orphan: true },
+    ];
+    failed += contract(ctx._reconcileUnit(orphanLike).badCount === 0 && reconcile(ctx, orphanLike).length === 0,
+        '未歸戶說明列不納入四層驗算（有金額、帶 l1Code 也一樣）');
+
+    // (4) 真的對不上時：要報在「一級」這一層，且只有上層列會被標紅（二級列不跟著標）
+    const mismatch = [
+        { level: '用途別一級', planCode: 'P', branchCode: '01', l1Code: '1000', amount: '100', planBudget: '100' },
+        { level: '用途別二級', planCode: 'P', branchCode: '01', l1Code: '1000', l2Code: '1005', amount: '60' },
+    ];
+    const rec = ctx._reconcileUnit(mismatch);
+    const badKeys = [...rec.badRowKeys];
+    failed += contract(rec.badCount === 1 && rec.issues[0].level === '用途別一級'
+        && badKeys.length === 1 && badKeys[0] === 'P|01|1000',
+        '對不上時只標紅上層列，二級列不跟著標紅', JSON.stringify({ badCount: rec.badCount, badKeys }));
+
+    // (5) 查核規則本身的負向測試：故意弄壞，必須抓到
+    const fragBad = [
+        { level: '分支計畫', planCode: 'P', branchCode: '01', amount: '100',
+          descFrags: [{ t: '這句有歸戶。', matched: true }, { t: '這句被標成已歸戶、卻沒有出現在任何一列。', matched: true }] },
+        { level: '用途別二級', planCode: 'P', branchCode: '01', l2Code: '1005', amount: '100', desc: '這句有歸戶。' },
+    ];
+    failed += contract(narrativeVisibility({ _unitDesc: r => r.desc || '' }, fragBad).lost.length === 1,
+        '說明文字消失會被查到（負向測試）');
+
+    const factBad = [
+        { level: '用途別二級', planCode: 'P', branchCode: '01', l2Code: '1005', l2Name: '法定編制人員待遇', amount: '100', desc: '與本科目無關的句子。', nameMatched: true },
+        { level: '用途別二級', planCode: 'P', branchCode: '01', l2Code: '1040', l2Name: '加班費', amount: '500', desc: '超時工作加班費 40,613千元，不休假加班費 25,976千元。', sumMatched: true },
+    ];
+    const factGood = [
+        { level: '用途別二級', planCode: 'P', branchCode: '01', l2Code: '1040', l2Name: '加班費', amount: '66589', desc: '加班費 66,589千元（超時 40,613千元、不休假 25,976千元）。', nameMatched: true },
+        { level: '用途別二級', planCode: 'P', branchCode: '01', l2Code: '1040', l2Name: '加班費', amount: '66589', desc: '超時工作加班費 40,613千元，不休假加班費 25,976千元。', sumMatched: true },
+    ];
+    const factIssues = factClaimIssues(factBad);
+    failed += contract(factIssues.length === 2 && factClaimIssues(factGood).length === 0,
+        '白底事實級標記無法自證會被查到（負向測試）', JSON.stringify(factIssues.map(x => x.kind)));
+
+    failed += contract(acctCodeIssues(ctx, [{ l2Code: '9999', l2Name: '不存在的科目' }]).length === 1
+        && acctCodeIssues(ctx, [{ l2Code: '6005', l2Name: '第一預備金' }]).length === 0,
+        '非官方科目代碼會被查到（含已補上的 6005 第一預備金）');
+}
+
+// (6) 解析世代：切換機關規則時，先開始、後完成的舊解析不得蓋掉新結果，也不得把舊規則的
+//     資料標成新規則的名稱（原本完成訊息讀的是「當下的」_unitProfile）。
+{
+    const ctx = loadTool(html);
+    const els = {};
+    const el = id => (els[id] = els[id] || { style: {}, textContent: '', innerHTML: '', disabled: false, files: { length: 0 }, value: '', addEventListener() { } });
+    ctx.document = { getElementById: el, querySelectorAll: () => [], createElement: () => el('x') };
+    ctx.pdfjsLib = { getDocument: () => ({ promise: Promise.resolve({}), destroy() { } }) };
+    // 頂層 let（_unitData／_unitProfile）是 script 的語彙宣告，不會成為 ctx 的屬性，
+    // 直接寫 ctx._unitData 只會多一個沒人讀的全域屬性——必須用 runInContext 設值。
+    vm.runInContext('_unitData = new Uint8Array([1,2,3])', ctx);   // 假裝已經有檔案，不必碰 input
+    ctx.parseAgencyPlanTable = async () => ({ pages: 0, map: new Map() });
+    const rendered = [];
+    ctx._renderUnitPlan = rows => rendered.push(rows);
+    const rowsOf = tag => [{ level: '用途別二級', planCode: 'P', branchCode: '01', l2Code: '1005', l2Name: '法定編制人員待遇', amount: '1', desc: tag }];
+    let calls = 0;
+    ctx.parseUnitDoc = async () => {
+        const n = ++calls;
+        await new Promise(r => setTimeout(r, n === 1 ? 60 : 5));   // 第一次慢、第二次快
+        return rowsOf(`call${n}`);
+    };
+
+    vm.runInContext("_unitProfile = 'edu'", ctx);
+    const first = ctx.parseUnitPlanPdf();
+    await new Promise(r => setTimeout(r, 5));                   // 讓第一次解析真的開始跑
+    vm.runInContext("_unitProfile = 'motc'", ctx);
+    const second = ctx.parseUnitPlanPdf();
+    await Promise.all([first, second]);
+
+    const lastRender = rendered[rendered.length - 1] || [];
+    const unitRows = vm.runInContext('_unitRows', ctx);
+    const ok = rendered.length === 1 && lastRender[0] && lastRender[0].desc === 'call2'
+        && unitRows[0] && unitRows[0].desc === 'call2'
+        && /交通部/.test(els.statusMessageU.textContent) && els.extractBtnU.disabled === false;
+    failed += contract(ok, '舊解析不得蓋掉新結果，完成訊息要用該次解析的機關規則', JSON.stringify({ renders: rendered.length, msgs: els.statusMessageU.textContent }));
 }
 
 if (failed) {

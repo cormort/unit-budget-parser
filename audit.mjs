@@ -8,8 +8,10 @@
 //
 // 判定一律由本檔的確定性規則做，不交給人或 agent 目測——目測會漏、會累、會編。
 // 檢查分兩級：
-//   blocker：違反即為 bug，無需 ground truth 就能斷定（如上下層加總不符、同一計畫兩種預算數）
-//   warn   ：品質指標超出區間，可能是資料本身的限制，需人工判讀（如孤兒句比例過高）
+//   blocker：違反即為 bug，無需 ground truth 就能斷定（如上下層加總不符、同一計畫兩種預算數、
+//            說明文字消失、白底「事實級」標記無法自證）
+//   warn   ：品質指標超出區間，可能是資料本身的限制，需人工判讀（如孤兒句比例過高、
+//            科目代碼不在官方清單內）
 // 退出碼：有任何 blocker → 1；只有 warn → 0。CI 與 agent 都靠這個判斷。
 
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.js';
@@ -17,7 +19,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { execSync } from 'node:child_process';
-import vm from 'node:vm';
+import { loadTool, reconcile, issueText, narrativeVisibility, factClaimIssues, acctCodeIssues } from './harness.mjs';
 
 // ── 品質指標的可接受區間。超出不代表壞掉，代表「值得看一眼」 ──
 // 上界取自六個機關的實測最差值再放寬，不是憑感覺訂的：
@@ -33,43 +35,7 @@ const WARN = {
     nameUnextractedAbs: 2,
 };
 
-function loadTool(html) {
-    // 取最長的 inline <script>＝工具本體（頁面另有 GA 等短腳本，不能寫死第 1 個）
-    const js = html.split('<script>').slice(1).map(s => s.split('</script>')[0])
-        .reduce((a, b) => b.length > a.length ? b : a)
-        .replace(/pdfjsLib\.GlobalWorkerOptions[^\n]*\n/, '');
-    const stub = { files: { length: 0 }, style: {}, value: '', textContent: '', innerHTML: '', options: [], addEventListener() { }, querySelectorAll: () => [] };
-    const ctx = {
-        console: { log() { }, warn() { }, error() { } },   // 解析過程的雜訊不進報告
-        document: { getElementById: () => stub, querySelectorAll: () => [], createElement: () => stub },
-        window: {}, XLSX: {}, pdfjsLib: { GlobalWorkerOptions: {} },
-        URL: { createObjectURL: () => '', revokeObjectURL() { } }, Blob: function () { },
-    };
-    ctx.globalThis = ctx;
-    vm.createContext(ctx);
-    vm.runInContext(js, ctx);
-    return ctx;
-}
-
 const n = v => +String(v ?? '').replace(/,/g, '');
-
-// ── blocker 1：上下層加總 ──
-function checkFourLayer(rows) {
-    const l2s = {}, l1a = {}, brs = {}, bra = {}, pls = {}, plb = {};
-    for (const r of rows) {
-        const a = n(r.amount);
-        plb[r.planCode] = n(r.planBudget);
-        const bk = r.planCode + '|' + r.branchCode, lk = bk + '|' + r.l1Code;
-        if (r.level === '分支計畫') { bra[bk] = a; pls[r.planCode] = (pls[r.planCode] || 0) + a; }
-        else if (r.level === '用途別一級') { l1a[lk] = a; brs[bk] = (brs[bk] || 0) + a; }
-        else if (r.level === '用途別二級') l2s[lk] = (l2s[lk] || 0) + a;
-    }
-    const v = [];
-    for (const k in l1a) if (l2s[k] !== undefined && l2s[k] !== l1a[k]) v.push({ where: '一級 ' + k, listed: l1a[k], sum: l2s[k], diff: l2s[k] - l1a[k] });
-    for (const k in bra) if (brs[k] !== undefined && brs[k] !== bra[k]) v.push({ where: '分支 ' + k, listed: bra[k], sum: brs[k], diff: brs[k] - bra[k] });
-    for (const k in plb) if (pls[k] !== undefined && pls[k] !== plb[k]) v.push({ where: '計畫 ' + k, listed: plb[k], sum: pls[k], diff: pls[k] - plb[k] });
-    return v;
-}
 
 // ── blocker 2：同一個 planCode 不得出現兩種 planBudget ──
 // 實測地方版曾因「經常門／資本門分兩段、累加後未回填先前的列」而違反；
@@ -135,7 +101,7 @@ async function auditOne(html, file, toolVersion) {
     const rec = { file, tool: 'unit-budget-parser', toolVersion, ok: false, blockers: [], warnings: [] };
     let task = null;
     try {
-        const ctx = loadTool(html);
+        const ctx = loadTool(html, { quiet: true });   // 解析過程的雜訊不進報告
         task = getDocument({ data: new Uint8Array(await readFile(file)) });
         const pdf = await task.promise;
         rec.pages = pdf.numPages;
@@ -158,14 +124,36 @@ async function auditOne(html, file, toolVersion) {
             agencyTablePages: agency.pages,
         };
 
-        const four = checkFourLayer(rows);
-        if (four.length) rec.blockers.push({ check: 'fourLayer', count: four.length, sample: four.slice(0, 5) });
+        // 四層驗算的判準在 index.html 的 _reconcileUnit()，這裡只呼叫它（不再自行複寫一份）
+        const four = reconcile(ctx, rows);
+        if (four.length) rec.blockers.push({ check: 'fourLayer', count: four.length, sample: four.slice(0, 5).map(issueText) });
 
         const pb = checkPlanBudgetConsistent(rows);
         if (pb.length) rec.blockers.push({ check: 'planBudgetConsistent', count: pb.length, sample: pb.slice(0, 5) });
 
         const shape = checkFieldShape(rows);
         if (shape.length) rec.blockers.push({ check: 'fieldShape', count: shape.length, sample: shape.slice(0, 8) });
+
+        // ── blocker：說明文字不得消失 ──
+        // 每個切出來的句子都要在使用者看得到的地方（分支列總述／科目列說明／未歸戶列）。
+        // 這條守的是本工具的核心承諾；過去確實發生過「句子標成已歸戶、卻沒有任何一列顯示它」。
+        const nv = narrativeVisibility(ctx, rows);
+        rec.narrative = { frags: nv.frags, lost: nv.lost.length };
+        if (nv.lost.length) rec.blockers.push({ check: 'narrativeLost', count: nv.lost.length, sample: nv.lost.slice(0, 5) });
+
+        // ── blocker：白底「事實級」標記必須自證 ──
+        // 使用者被要求只信任白底（事實級），所以它必須能被獨立驗證：
+        // 名稱＋金額命中、句中加總、合併數分攤。推論級（黃／橘）不做此要求。
+        const claims = factClaimIssues(rows);
+        rec.factClaims = { violations: claims.length };
+        if (claims.length) rec.blockers.push({ check: 'factClaim', count: claims.length, sample: claims.slice(0, 5) });
+
+        // ── warn：科目代碼必須在官方「歲出用途別科目分類定義」清單內 ──
+        // 不在清單裡就不會被名稱校正（只能沿用 PDF 寫法），也可能是代碼讀錯。
+        // 官方清單每年可能新增代碼，故列為 warn 由人判讀，不直接擋。
+        const acct = acctCodeIssues(ctx, rows);
+        rec.acctCodes = { violations: acct.length };
+        if (acct.length) rec.warnings.push({ check: 'acctCode', count: acct.length, sample: acct.slice(0, 5), detail: '科目代碼不在官方清單內，名稱不會被校正' });
 
         const cc = checkCrossCheck(ctx, rows, agency);
         rec.crossCheck = { available: cc.available, checked: cc.checked, total: cc.total, unmatched: cc.unmatched.length };
