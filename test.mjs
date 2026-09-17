@@ -10,7 +10,7 @@
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.js';
 import { readFile } from 'fs/promises';
 import vm from 'node:vm';
-import { loadTool, reconcile, issueText, narrativeVisibility, factClaimIssues, acctCodeIssues } from './harness.mjs';
+import { loadTool, reconcile, issueText, narrativeVisibility, factClaimIssues, acctCodeIssues, orphanShape } from './harness.mjs';
 
 // ── 期望值：任何規則改動若動到既有歸屬，這裡就會失敗 ──
 // rows 含「未歸戶說明」列（每個未歸戶句一列，插在敘述順序的前後科目之間），故 rows = 科目列 + orphans
@@ -59,6 +59,7 @@ function crossCheckAgency(ctx, rows, agency) {
 
 const html = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 let failed = 0;
+const rowsByFile = new Map();      // 供後面的「未歸戶句形狀」查核使用
 
 for (const [file, want] of Object.entries(EXPECT)) {
     const ctx = loadTool(html);          // 每份重新載入，避免狀態互相污染
@@ -68,6 +69,7 @@ for (const [file, want] of Object.entries(EXPECT)) {
     const rows = await ctx.parseUnitDoc(pdf);
     const agency = await ctx.parseAgencyPlanTable(pdf);
     await task.destroy();
+    rowsByFile.set(file, rows);
 
     const l2 = rows.filter(r => r.level === '用途別二級');
     const got = {
@@ -97,7 +99,9 @@ for (const [file, want] of Object.entries(EXPECT)) {
         console.error(`✗ ${file}`);
         errs.forEach(e => console.error('    ' + e));
     } else {
-        console.log(`✓ ${file}  ${got.agency}｜${got.plans} 計畫／${got.rows} 列｜二級 ${got.l2}（有說明 ${got.withDesc}）｜孤兒句 ${got.orphans}｜四層驗算 0 不符｜工作計畫核對 ${got.plans}/${got.plans}（機關別表 ${agency.pages} 頁）｜說明 ${nv.frags} 句零遺失｜事實級標記自證 0 誤`);
+        const shp = orphanShape(rows);
+        const shapeTag = got.orphans && shp.total >= 10 ? `（含科目名 ${shp.withSubjectName}/${shp.total}${shp.byUnit ? '，敘述不按科目寫' : ''}）` : '';
+        console.log(`✓ ${file}  ${got.agency}｜${got.plans} 計畫／${got.rows} 列｜二級 ${got.l2}（有說明 ${got.withDesc}）｜孤兒句 ${got.orphans}${shapeTag}｜四層驗算 0 不符｜工作計畫核對 ${got.plans}/${got.plans}（機關別表 ${agency.pages} 頁）｜說明 ${nv.frags} 句零遺失｜事實級標記自證 0 誤`);
     }
 }
 
@@ -109,6 +113,23 @@ const contract = (ok, label, detail) => {
     console.error(`✗ ${label}${detail ? '：' + detail : ''}`);
     return 1;
 };
+
+// ── 未歸戶句的形狀：分辨「敘述不按科目寫」與「規則漏接」 ──
+// 這條決定了稽核門檻拿誰校準：教育部型（句中沒有科目名）是資料結構限制，不能當基準——
+// 用 34% 校準出來的門檻（原本 40%）對正常文件毫無鑑別力。衛福部型（句中寫了科目名卻沒接到）
+// 才是該補規則的地方。五份實測：教育部 3/450 = 0.7%、衛福部 85/90 = 94%、其餘近乎 0。
+{
+    const moeRows = rowsByFile.get('moe-115.pdf') || [];
+    const mohwRows = rowsByFile.get('mohw-115.pdf') || [];
+    const moe = orphanShape(moeRows), mohw = orphanShape(mohwRows);
+    failed += contract(moe.byUnit && moe.nameHitRate < 0.5,
+        '教育部型（敘述不按科目寫）被判為資料結構限制，不當門檻基準', JSON.stringify(moe));
+    failed += contract(!mohw.byUnit && mohw.nameHitRate > 0.9,
+        '衛福部型（句中含科目名卻没接到）不被誤判成資料限制', JSON.stringify(mohw));
+    failed += contract((orphanShape(rowsByFile.get('motc-115.pdf') || [])).total === 0,
+        '交通部零孤兒句');
+}
+
 
 {
     const ctx = loadTool(html);

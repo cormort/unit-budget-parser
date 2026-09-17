@@ -118,6 +118,40 @@ export function factClaimIssues(rows) {
     return v;
 }
 
+// ── 未歸戶句的形狀：分辨「敘述本來就不按科目寫」與「規則漏接」 ──
+// 未歸戶率高有兩種完全不同的原因，對策也相反：
+//   (a) 敘述按單位／業務切，句中根本沒有科目名（教育部型）→ 資料結構限制，再怎麼改規則都歸不了戶，
+//       不該拿它當門檻基準（拿它校準會讓門檻鬆到對正常文件毫無鑑別力）。
+//   (b) 句中明明寫了本科目名，金額卻對不上（衛福部附冊型）→ 工具看到了卻沒接到，屬可改進的缺口。
+// 判準：未歸戶句中含有「同分支任一科目名」的比例。實測教育部 3/450 = 0.7%、衛福部 85/90 = 94%、
+// 主計總處 0/1、農業部 0/14、交通部 0/0。
+export function orphanShape(rows, { minSample = 20 } = {}) {
+    const byBranch = new Map();
+    for (const r of rows) {
+        const k = r.planCode + '|' + r.branchCode;
+        if (!byBranch.has(k)) byBranch.set(k, []);
+        byBranch.get(k).push(r);
+    }
+    const orphans = rows.filter(r => r.level === '未歸戶說明');
+    let withSubjectName = 0;
+    const samples = [];
+    for (const o of orphans) {
+        const grp = byBranch.get(o.planCode + '|' + o.branchCode) || [];
+        const names = grp.filter(r => (r.l2Code || r.l1Code) && r.desc !== o.desc)
+            .map(r => r.l2Name || r.l1Name).filter(Boolean);
+        const hit = names.filter(n => String(o.desc || '').includes(n));
+        if (hit.length) {
+            withSubjectName++;
+            if (samples.length < 3) samples.push({ branch: o.planCode + '|' + o.branchCode, names: hit, desc: String(o.desc).slice(0, 40) });
+        }
+    }
+    const total = orphans.length;
+    const nameHitRate = total ? withSubjectName / total : 0;
+    // 比例樣本太小沒有意義（1 句孤兒句湊巧含科目名就是 100%），故要求達到最小樣本數才判定
+    const byUnit = total >= minSample && nameHitRate < 0.5;
+    return { total, withSubjectName, nameHitRate: +nameHitRate.toFixed(3), byUnit, samples };
+}
+
 // ── 科目代碼必須是官方「歲出用途別科目分類定義」的代碼 ──
 // 官方清單在 index.html 的 _ACCT；不在清單裡的代碼不會被名稱校正，只能沿用 PDF 的寫法，
 // 而且可能代表解析把代碼讀錯了。實測五份語料只有一個（6005 第一預備金，已補進 _ACCT）。

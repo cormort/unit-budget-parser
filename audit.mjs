@@ -19,15 +19,22 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { execSync } from 'node:child_process';
-import { loadTool, reconcile, issueText, narrativeVisibility, factClaimIssues, acctCodeIssues } from './harness.mjs';
+import { loadTool, reconcile, issueText, narrativeVisibility, factClaimIssues, acctCodeIssues, orphanShape } from './harness.mjs';
 
 // ── 品質指標的可接受區間。超出不代表壞掉，代表「值得看一眼」 ──
-// 上界取自六個機關的實測最差值再放寬，不是憑感覺訂的：
-//   孤兒句比例最高為教育部 446/1313 = 34%（其說明按單位而非按科目撰寫，屬資料限制）
+//
+// 校準基準＝「敘述按科目寫」的文件（主計總處 0.3%、農業部 3.1%、交通部 0%、衛福部 6.9%）。
+// **刻意不拿教育部校準**：它的說明按單位／業務切，句中幾乎不出現科目名（孤兒句 450 句中
+// 只有 3 句含科目名），拿它當上界會把門檻鬆到 40%，對正常文件完全沒有鑑別力
+// （衛福部的孤兒句就算從 7% 惡化到 35%，也會靜默通過）。它是資料結構限制，不是基準。
+// 未歸戶率超標時再用 orphanShape() 分辨兩種成因：句中沒有科目名＝資料限制（orphanByUnit），
+// 句中寫了科目名卻沒接到＝可改進的缺口（orphanRate）。
 const WARN = {
-    orphanRate: 0.40,        // 未歸戶句 / 總列數
+    orphanRate: 0.15,        // 未歸戶句 / 總列數（符合基準的文件最差 6.9%，門檻取其兩倍餘裕）
+    orphanNameHitRate: 0.50, // 未歸戶句中含同分支科目名的比例；低於此視為「敘述不按科目寫」
+    orphanMinSample: 20,     // 未歸戶句少於此數不判定形狀（農業部 14 句、主計總處 1 句皆不判定）
     nameUnextractedRate: 0.20,  // 機關別表抽不到名稱的計畫比例（實測最差 2/12 = 17%）
-    descCoverage: 0.05,      // 二級科目有說明的比例低於此 → 可能整段說明沒讀到
+    descCoverage: 0.35,      // 二級科目有說明的比例低於此 → 可能說明整段沒讀到（符合基準的文件 68～97%）
     // 比例類指標的最小樣本數。小機關只有 3 個工作計畫時，1 筆抽不到就是 33%，
     // 必然超標卻毫無意義——實測數位發展部資安署／產業署（各 3 個計畫）都因此誤報。
     // 樣本不足時改看絕對筆數。
@@ -172,9 +179,33 @@ async function auditOne(html, file, toolVersion) {
 
         const orphanRate = rec.counts.orphans / rec.counts.rows;
         const descCoverage = rec.counts.l2 ? rec.counts.l2WithDesc / rec.counts.l2 : 0;
+        const oshape = orphanShape(rows, { minSample: WARN.orphanMinSample });   // 名稱不可用 shape：上方 checkFieldShape 的結果已經叫 shape
+        rec.orphanShape = { total: oshape.total, withSubjectName: oshape.withSubjectName, nameHitRate: oshape.nameHitRate, byUnit: oshape.byUnit };
         rec.quality = { orphanRate: +orphanRate.toFixed(3), descCoverage: +descCoverage.toFixed(3), nameUnextracted: cc.nameUnextracted, amountUnextracted: cc.amountUnextracted };
-        if (orphanRate > WARN.orphanRate) rec.warnings.push({ check: 'orphanRate', value: +orphanRate.toFixed(3), threshold: WARN.orphanRate });
-        if (rec.counts.l2 && descCoverage < WARN.descCoverage) rec.warnings.push({ check: 'descCoverage', value: +descCoverage.toFixed(3), threshold: WARN.descCoverage });
+
+        // 未歸戶率超標：先分形狀，再決定是「資料限制」還是「規則缺口」。
+        // 兩者的處置相反（前者不要拿來校準門檻、後者才是該補規則的地方），不能混成一個警告。
+        if (orphanRate > WARN.orphanRate) {
+            if (oshape.byUnit) {
+                rec.warnings.push({
+                    check: 'orphanByUnit', value: +orphanRate.toFixed(3), threshold: WARN.orphanRate,
+                    nameHitRate: oshape.nameHitRate, count: oshape.total, sample: oshape.samples,
+                    detail: '未歸戶句多且句中没有科目名：這份的說明按單位／業務切，不是按科目（資料結構限制，非解析 bug）；'
+                        + '不作為門檻校準基準',
+                });
+            } else {
+                rec.warnings.push({
+                    check: 'orphanRate', value: +orphanRate.toFixed(3), threshold: WARN.orphanRate,
+                    nameHitRate: oshape.nameHitRate, count: oshape.total, sample: oshape.samples,
+                    detail: '未歸戶句中含本科目名卻没接到：屬可改進的歸戶缺口，優先檢查這幾句的寫法',
+                });
+            }
+        }
+        if (rec.counts.l2 && descCoverage < WARN.descCoverage && !(oshape.byUnit && !orphanRate)) {
+            // 敘述不按科目寫的文件，本來就有大量科目拿不到說明；已在 orphanByUnit 說明過就不重複報
+            if (!oshape.byUnit) rec.warnings.push({ check: 'descCoverage', value: +descCoverage.toFixed(3), threshold: WARN.descCoverage });
+            else rec.warnings.push({ check: 'descCoverage', value: +descCoverage.toFixed(3), threshold: WARN.descCoverage, basis: 'dataLimit', detail: '同上：敘述不按科目寫，科目自然多數沒有對應說明（見 orphanByUnit）' });
+        }
 
         rec.ok = rec.blockers.length === 0;
     } catch (e) {
