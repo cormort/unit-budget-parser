@@ -1069,7 +1069,7 @@
             const name = r.level === '用途別一級' ? r.l1Name : r.l2Name;
             if (!r.desc || !name || !r.descShared) return '';
             const amt = _unitFmt(r.amount).replace(/,/g, '[,，]?');
-            const m = r.desc.match(new RegExp(`[^、，（）()。]{0,12}${_reEsc(name)}[^、，（）()。]{0,12}${amt}\\s*千元`));
+            const m = r.desc.match(new RegExp(`[^、，（）()。]{0,12}${_reEsc(name)}[^、，（）()。]{0,12}(?<![\\d,，])${amt}\\s*千元`));
             return m ? m[0] : '';
         }
         function _unitPass(r) {
@@ -1184,7 +1184,7 @@
             const F = _unitFilter;
             const selHTML = (k, label, opts, cur) => `<label style="margin-right:14px;white-space:nowrap;">${label}：<select onchange="_onUnitFilter('${k}',this.value)" style="padding:6px;border:1px solid #ccc;border-radius:4px;max-width:260px;"><option value="">全部</option>${opts.map(o => `<option value="${escapeHtml(o.v)}"${o.v === cur ? ' selected' : ''}>${escapeHtml(o.t)}</option>`).join('')}</select></label>`;
             const searchHTML = `<label style="margin-right:14px;white-space:nowrap;">編列說明搜尋：<input type="text" value="${escapeHtml(F.q)}" placeholder="輸入關鍵字後按 Enter" oninput="_unitFilter.q=this.value.trim()" onchange="_renderUnitPlan(_unitRows)" style="padding:6px;border:1px solid #ccc;border-radius:4px;width:220px;"></label>`;
-            const clearHTML = (F.plan || F.branch || F.l1 || F.l2 || F.q || F.method) ? `<button type="button" class="btn-secondary" onclick="_unitFilter.q='';_unitFilter.method='';_onUnitFilter('plan','');" title="清除全部條件" style="padding:6px 12px;">清除</button>` : '';
+            const clearHTML = (F.plan || F.branch || F.l1 || F.l2 || F.q || F.method) ? `<button type="button" class="btn-secondary" onclick="Object.keys(_unitFilter).forEach(k=>_unitFilter[k]='');_renderUnitPlan(_unitRows);" title="清除全部條件" style="padding:6px 12px;">清除</button>` : '';
             const filterHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px 0;align-items:center;margin:10px 0;">${selHTML('plan', '工作計畫', planOpts, F.plan)}${selHTML('branch', '分支計畫', brOpts, F.branch)}${selHTML('l1', '一級科目', l1Opts, F.l1)}${selHTML('l2', '二級科目', l2Opts, F.l2)}${methodOpts.length ? selHTML('method', '歸戶方式', methodOpts, F.method) : ''}${searchHTML}${clearHTML}</div>`;
 
             // 篩選（含編列說明文字查詢）
@@ -1215,7 +1215,7 @@
                 let out = '', pos = 0;
                 for (const [a, b, cls, tip] of marks) {
                     if (a < pos) continue;
-                    out += escapeHtml(s.slice(pos, a)) + `<span class="${cls}" title="${tip}">${escapeHtml(s.slice(a, b))}</span>`;
+                    out += escapeHtml(s.slice(pos, a)) + `<span class="${cls}" title="${escapeHtml(tip)}">${escapeHtml(s.slice(a, b))}</span>`;
                     pos = b;
                 }
                 return out + escapeHtml(s.slice(pos));
@@ -1306,14 +1306,14 @@
                 content = '﻿' + [head, ...view.map(rowArr)].map(row => row.map(esc).join(',')).join('\r\n');
                 mime = 'text/csv;charset=utf-8';
             } else { // json
-                content = JSON.stringify(view.map(r => Object.fromEntries(head.map((h, i) => [h, rowArr(r)[i]]))), null, 2);
+                content = JSON.stringify(view.map(r => { const v = rowArr(r); return Object.fromEntries(head.map((h, i) => [h, v[i]])); }), null, 2);
                 mime = 'application/json';
             }
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([content], { type: mime }));
             a.download = fname + '.' + kind;
             a.click();
-            URL.revokeObjectURL(a.href);
+            setTimeout(() => URL.revokeObjectURL(a.href));   // 同步 revoke 在 Firefox/Safari 可能讓下載失敗
         }
     </script>
 </body>
