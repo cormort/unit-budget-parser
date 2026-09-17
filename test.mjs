@@ -16,11 +16,8 @@ import { loadTool, reconcile, issueText, narrativeVisibility, factClaimIssues, a
 // rows 含「未歸戶說明」列（每個未歸戶句一列，插在敘述順序的前後科目之間），故 rows = 科目列 + orphans
 const EXPECT = {
     'dgbas-115.pdf': { agency: '行政院主計總處', plans: 12, rows: 297, l2: 239, withDesc: 232, orphans: 1 },
-    // 救回被承辦單位欄吞掉的說明後：rows 1313→1352、withDesc 144→148、orphans 446→485
-    // (n) 子句跟著父句歸屬分支層後：rows 1352→1348、orphans 485→481（17 份共少 23 筆孤兒列，
-    // 字元多重集合完全一致＝那些句子只是從獨立列移到分支列，沒有任何文字遺失）
-    // 計畫沿革句歸分支層後：rows 1348→1317、orphans 481→450（字元多重集合 0 差異）
-    'moe-115.pdf': { agency: '教育部', plans: 17, rows: 1317, l2: 622, withDesc: 148, orphans: 450 },
+    // 教育部 115 年度已從回歸語料移除（說明按單位／業務寫，屬資料結構限制，不適合作基準；
+    // 其量測留在 README 第五節作為該類文件的說明）。
     'moa-115.pdf': { agency: '農業部', plans: 8, rows: 453, l2: 319, withDesc: 217, orphans: 14 },
     // 以下兩份含「非基準版面」，是欄界量測（_unitPageHead）的回歸樣本，不可只留基準版面的三份：
     //   mohw 整張表縮到約 95%（說明欄 x=356、內文 341，皆低於原本寫死的 359）——六份實測中僅此一份
@@ -115,19 +112,27 @@ const contract = (ok, label, detail) => {
 };
 
 // ── 未歸戶句的形狀：分辨「敘述不按科目寫」與「規則漏接」 ──
-// 這條決定了稽核門檻拿誰校準：教育部型（句中沒有科目名）是資料結構限制，不能當基準——
-// 用 34% 校準出來的門檻（原本 40%）對正常文件毫無鑑別力。衛福部型（句中寫了科目名卻沒接到）
-// 才是該補規則的地方。五份實測：教育部 3/450 = 0.7%、衛福部 85/90 = 94%、其餘近乎 0。
+// 這條決定稽核門檻拿誰校準。「句中沒有科目名」＝資料結構限制（不能當基準，否則門檻會鬆到
+// 對正常文件毫無鑑別力）；「句中寫了科目名卻没接到」才是該補規則的地方。
+// 用合成資料測分類器本身（真實語料中衛福部 85/90 含科目名、其餘幾份近乎 0），
+// 不再依賴特定機關的文件——那個機關已經不在回歸語料裡了。
 {
-    const moeRows = rowsByFile.get('moe-115.pdf') || [];
-    const mohwRows = rowsByFile.get('mohw-115.pdf') || [];
-    const moe = orphanShape(moeRows), mohw = orphanShape(mohwRows);
-    failed += contract(moe.byUnit && moe.nameHitRate < 0.5,
-        '教育部型（敘述不按科目寫）被判為資料結構限制，不當門檻基準', JSON.stringify(moe));
-    failed += contract(!mohw.byUnit && mohw.nameHitRate > 0.9,
-        '衛福部型（句中含科目名卻没接到）不被誤判成資料限制', JSON.stringify(mohw));
-    failed += contract((orphanShape(rowsByFile.get('motc-115.pdf') || [])).total === 0,
-        '交通部零孤兒句');
+    const subject = { level: '用途別二級', planCode: 'P', branchCode: '01', l2Code: '2054', l2Name: '一般事務費', amount: '100', desc: '…' };
+    const orphan = (desc, i) => ({ level: '未歸戶說明', planCode: 'P', branchCode: '01', l1Code: '', l2Code: '', amount: '', desc, orphan: true, i });
+    // 樣本數要達到 orphanShape 的最小判定樣本（20 句）
+    const byUnitRows = [subject, ...Array.from({ length: 20 }, (_, i) => orphan(`第${i + 1}項：辦理某項業務等經費${100 + i}千元（某處）。`, i))];
+    const nameRows = [subject, ...Array.from({ length: 20 }, (_, i) => orphan(`第${i + 1}項：一般事務費相關支出${100 + i}千元。`, i))];
+    const a = orphanShape(byUnitRows), b = orphanShape(nameRows);
+    failed += contract(a.byUnit && a.nameHitRate === 0,
+        '敘述不按科目寫（未歸戶句不含科目名）被判為資料結構限制', JSON.stringify(a));
+    failed += contract(!b.byUnit && b.nameHitRate === 1,
+        '未歸戶句含本科目名時不被誤判成資料限制', JSON.stringify(b));
+    failed += contract(orphanShape([subject, orphan('只有一句。', 0)]).byUnit === false,
+        '未歸戶句樣本太小（1 句）不判定形狀');
+    const mohw = orphanShape(rowsByFile.get('mohw-115.pdf') || []);
+    failed += contract(mohw.total === 90 && !mohw.byUnit && mohw.nameHitRate > 0.9,
+        '衛福部實測：90 句孤兒、94% 含科目名 → 判為可改進缺口而非資料限制', JSON.stringify(mohw));
+    failed += contract(orphanShape(rowsByFile.get('motc-115.pdf') || []).total === 0, '交通部零孤兒句');
 }
 
 
