@@ -6,7 +6,8 @@ import { loadTool, reconcile, issueText } from './harness.mjs';
 
 const csv = rows => {
     const cols = [...new Set(rows.flatMap(Object.keys))].filter(c => c !== 'descFrags' && !c.startsWith('_'));
-    const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    // 防 CSV 公式注入：= + - @ 開頭的文字前綴 '（純數字如負金額不動）
+    const cell = v => { const t = String(v ?? ''); return `"${(/^[=+\-@\t\r]/.test(t) && !/^-?[\d,.]+$/.test(t) ? "'" + t : t).replace(/"/g, '""')}"`; };
     return '﻿' + [cols.join(','), ...rows.map(r => cols.map(c => cell(r[c])).join(','))].join('\n');
 };
 
