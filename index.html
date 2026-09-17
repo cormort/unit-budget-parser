@@ -1302,7 +1302,8 @@
             }
             let content, mime;
             if (kind === 'csv') {
-                const esc = v => `"${String(v).replace(/"/g, '""')}"`;
+                // 文字格以 = + - @ 開頭會被 Excel 當公式執行（CSV 注入），前綴 ' 當純文字；金額是 number 不受影響
+                const esc = v => `"${(typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? "'" + v : String(v)).replace(/"/g, '""')}"`;
                 content = '﻿' + [head, ...view.map(rowArr)].map(row => row.map(esc).join(',')).join('\r\n');
                 mime = 'text/csv;charset=utf-8';
             } else { // json
