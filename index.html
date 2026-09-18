@@ -39,14 +39,14 @@
         .up-legend { font-size: 12px; color: #5c4a00; background: #fffdf5; border: 1px solid #f0e2b6; border-radius: 5px; padding: 6px 10px; margin: 8px 0 0; }
         .up-legend .lg { display: inline-block; padding: 1px 6px; border-radius: 3px; margin-right: 8px; border: 1px solid #e2e8f0; }
         .up-legend .lg-fact { background: #fff; }
-        .up-legend .lg-inf { background: #fff3cd; }
-        .up-legend .lg-amb { background: #ffd8b5; }
+        .up-legend .lg-inf { background: #e5dbff; }
+        .up-legend .lg-amb { background: #ffc58f; }
         #unitTable .up-desc { white-space: normal; line-height: 1.5; font-weight: normal; max-width: 560px; }
         #unitTable .up-clause { font-weight: 600; margin-bottom: 3px; }  /* 整段一句時抽出的本科目子句 */
         #unitTable .up-combo-hit { border-bottom: 2px dotted #b36b00; }   /* 說明中的合併數：本科目只分攤其中一部分 */
-        #unitTable .up-orphan td { background: #fff3cd; }  /* 未歸戶句：獨立列，插在敘述順序的前後科目之間 */
-        #unitTable .narr-un { background: #fff3cd; }  /* 順序推論／未對應到任何科目的句子（黃） */
-        #unitTable td.narr-amb { background: #ffd8b5; }  /* 模糊：區間多科目候選，不確定（橘） */
+        #unitTable .up-orphan td { background: #e5dbff; }  /* 未歸戶句：獨立列，插在敘述順序的前後科目之間 */
+        #unitTable .narr-un { background: #e5dbff; }  /* 順序推論／未對應到任何科目的句子（紫） */
+        #unitTable td.narr-amb { background: #ffc58f; }  /* 模糊：區間多科目候選，不確定（橘） */
         /* 說明「內文」的兩種標記。不加 #unitTable 前綴，圖例與免責聲明才能直接沿用同一份定義 */
         .up-hit { background: #ffe066; font-weight: 700; border-radius: 2px; padding: 0 1px; }   /* 符合搜尋關鍵字 */
         /* 金額＝本科目金額（檢誤用，非搜尋結果）→ 綠色底線，與關鍵字黃底區隔 */
@@ -75,7 +75,7 @@
             <strong>⚠ 本工具僅供輔助核對，不能取代人工審閱——一切數據以政府公佈的預算書 PDF 原文為準。</strong>
             <ul>
                 <li><strong>可信賴的部分</strong>：金額與科目結構直接取自 PDF 左側表格，並經上下合計驗算（二級→一級→分支→工作計畫，不符會標紅）；工作計畫的編號與本年度預算數另以同一本預算書的<strong>歲出機關別預算表</strong>核對，屬外部依據而非自我一致性。</li>
-                <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#fff3cd;">黃底＝推論</span>、<span style="background:#ffd8b5;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>黃底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong>（以上指整格底色；說明<em>內文</em>另有兩種標記：<span class="up-amt-hit">綠色底線＝該金額與本科目金額相同</span>、<span class="up-hit">黃底＝符合搜尋關鍵字</span>）</li>
+                <li><strong>含推論的部分</strong>：右側「編列說明」與科目的對應是程式歸戶的結果——白底＝金額／名稱精確命中（事實級），<span style="background:#e5dbff;">紫底＝推論</span>、<span style="background:#ffc58f;">橘底＝無法判定的候選</span>、留白＝原文無可對應文字。<strong>紫底、橘底與留白務必回對原始 PDF 確認，切勿直接引用。</strong>（以上指整格底色；說明<em>內文</em>另有兩種標記：<span class="up-amt-hit">綠色底線＝該金額與本科目金額相同</span>、<span class="up-hit">黃底＝符合搜尋關鍵字</span>）</li>
                 <li><strong>已知限制</strong>：部分機關（如教育部）的說明按單位／業務撰寫而非按科目，多數句子無法對應到科目，屬資料本身的限制而非解析錯誤。</li>
             </ul>
         </div>
@@ -388,7 +388,7 @@
             return s.replace(/[\s　]/g, '');
         }
 
-        // 分支結案：把該分支的說明切句、依金額掛到對應科目、算出未認領句子（黃底）
+        // 分支結案：把該分支的說明切句、依金額掛到對應科目、算出未認領句子（紫底）
         // 只在「金額於分支內唯一屬於一個科目、且只出現在一句」時才填，否則留白（不臆測）
         const _fragAmts = t => [...String(t).matchAll(/([\d,]+)千元/g)].map(x => +x[1].replace(/,/g, ''));
 
@@ -596,7 +596,7 @@
             }
             // 順序推論的金額否決：推論句含金額、卻與本科目金額矛盾（不含該額、加總也不等）
             // → 降級為橘待確認。界限能排除錯誤答案——實測教育部 6 列 1:1 推論全數金額矛盾（即錯配），
-            // 主計總處/農業部各 1 列。金額可佐證者維持黃底推論。
+            // 主計總處/農業部各 1 列。金額可佐證者維持紫底推論。
             for (const c of br.codeRows) {
                 if (!c.inferred) continue;
                 const a = _fragAmts(c.desc);
@@ -647,14 +647,14 @@
                 if (hits.length !== 1) continue;
                 c.descIdx = hits[0]; c.desc = frags[hits[0]]; c.nameMatched = true; claimed.add(hits[0]);
             }
-            // 歸屬到「分支計畫層」的句子（不標黃、不另立未歸戶列），三種：
+            // 歸屬到「分支計畫層」的句子（不標紫、不另立未歸戶列），三種：
             //   ① 無金額句（「本分支計畫係辦理…」「其內容如下：」）
             //   ② 明寫「本分支計畫…／本計畫係…」
             //   ③ 句中金額＝分支總額（如「本分支計畫為一般行政管理工作…計編列47,217千元」）
             //   ④ 計畫沿革句（核定文號／總經費／期程），金額是計畫總經費或各機關分攤數，不是本年度科目數
             // ②③④ 的金額是分支小計、不等於任何科目金額，故永遠不會被科目認領；若只看「有沒有被科目
-            // 認領」就會把它們判成未歸戶而另立黃底列，分支列反而空白——它們不是無主的句子，
-            // 主人就是分支本身。黃底只留給「有金額卻對不到任何層級」的真正待查句。
+            // 認領」就會把它們判成未歸戶而另立紫底列，分支列反而空白——它們不是無主的句子，
+            // 主人就是分支本身。紫底只留給「有金額卻對不到任何層級」的真正待查句。
             // ③ 比對分支總額時做邊界防護：總額 50 不可命中「150千元」。
             const _brAmt = new RegExp(`(^|[^\\d,])${_unitFmt(br.row.amount).replace(/,/g, '[,，]?')}千元`);
             // ④ 的金額否決是關鍵：句中任一「N千元」等於本分支任何科目金額就不算計畫層敘述，
@@ -1270,9 +1270,9 @@
             }
             // 圖例不放在 <th> 內：表頭文字一長就換行變高，會與 sticky 的合計列重疊
             const legend = `<div class="up-legend">編列說明底色：<span class="lg lg-fact">白＝金額／名稱命中・合併數（事實）</span>`
-                + `<span class="lg lg-inf">黃＝順序推論・人數歸戶</span>`
+                + `<span class="lg lg-inf">紫＝順序推論・人數歸戶</span>`
                 + `<span class="lg lg-amb">橘＝區間多科目候選，待確認</span>`
-                + `<span class="lg lg-inf">黃底整列＝未歸戶句，插在敘述順序的前後科目之間，金額欄留空待人工歸戶</span>`
+                + `<span class="lg lg-inf">紫底整列＝未歸戶句，插在敘述順序的前後科目之間，金額欄留空待人工歸戶</span>`
                 + `　分支列＝無金額總述句。<br>說明內文字標記：`
                 + `<span class="lg up-amt-hit">綠色底線＝此金額與本科目金額相同（檢誤）</span>`
                 + `<span class="lg up-combo-hit">橘色虛底線＝合併數：一句寫數個科目的合計，本列只分攤其中一部分（滑鼠移上看分攤明細）</span>`
